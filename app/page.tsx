@@ -145,6 +145,7 @@ function PlanView({ selected, onSelect, layout, onLayout }: { selected: Furnitur
   return (
     <section className="plan-workspace" aria-label="2D floor plan editor">
       <div className="layout-switch"><span>LAYOUT</span><button className={layout === 'A' ? 'active' : ''} onClick={() => onLayout('A')}>A</button><button className={layout === 'B' ? 'active' : ''} onClick={() => onLayout('B')}>B</button></div>
+      <div className="drawing-index"><strong>A–01</strong><span>FURNITURE PLAN</span><small>ISSUE 02 · AI STUDY</small></div>
       <div className="north-marker"><span>N</span><i /></div><div className="scale-key"><span /> 5 ft</div>
       <div className={`floor-plan-wrap layout-${layout.toLowerCase()}`}>
         <div className="measure top">24′ 6″</div><div className="measure left">30′ 3″</div>
@@ -167,6 +168,11 @@ function PlanView({ selected, onSelect, layout, onLayout }: { selected: Furnitur
           <div className="room bath"><div className="room-label"><strong>BATH</strong><span>5′ 8″ × 8′ 1″</span></div><div className="bath-fixtures"><span /><i /><b /></div></div>
           <div className="entry-label">ENTRY</div><div className="door-swing entry-door" /><div className="clear-path"><span>3′ 4″ WALKWAY</span></div>
         </div>
+      </div>
+      <div className="sheet-titleblock" aria-label="Drawing title block">
+        <div><span>PROJECT</span><strong>197 BEDFORD AVE · 4B</strong></div>
+        <div><span>DRAWING</span><strong>FURNITURE + CLEARANCE PLAN</strong></div>
+        <div className="sheet-meta"><span>SCALE<br /><b>1/4″ = 1′–0″</b></span><span>DATE<br /><b>26 AUG 2026</b></span><strong>A–01</strong></div>
       </div>
       <div className="plan-status"><span className="status-good">✓ No collisions</span><span>Minimum clearance 3′ 0″</span></div>
     </section>

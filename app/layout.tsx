@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     title: 'Dwellwise — Apartment fit, before you sign',
     description: 'Know whether an apartment fits your life before you sign.',
     type: 'website',
-    images: [{ url: '/og.png', width: 1672, height: 941, alt: 'Dwellwise apartment evaluation workspace' }],
+    images: [{ url: '/og.png', width: 1731, height: 909, alt: 'Dwellwise architectural apartment evaluation drawing' }],
   },
   twitter: {
     card: 'summary_large_image',
