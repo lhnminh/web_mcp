@@ -12,7 +12,13 @@ const geistMono = Geist_Mono({
   subsets: ['latin'],
 });
 
+const deploymentHost = process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
+const metadataBase = new URL(
+  process.env.NEXT_PUBLIC_SITE_URL ?? (deploymentHost ? `https://${deploymentHost}` : 'http://localhost:3000'),
+);
+
 export const metadata: Metadata = {
+  metadataBase,
   title: 'Dwellwise — Apartment fit, before you sign',
   description: 'Evaluate furniture fit, natural light, and livability before you sign a lease.',
   openGraph: {

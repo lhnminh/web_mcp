@@ -37,6 +37,12 @@ Keeping one canonical unit and transform avoids conversion drift between views.
 
 Every write requires `expectedRevision`. A stale revision returns HTTP 409 with the current project, preventing one browser tab from silently overwriting another.
 
+## Production storage
+
+The application stores projects in PostgreSQL through Neon's serverless driver. Set `DATABASE_URL` to a PostgreSQL connection string before starting the app. On Vercel, connecting a Neon database from the Storage marketplace supplies this value automatically.
+
+The API creates the `projects` table and its updated-at index when it first connects to an empty database. The SQL definitions remain in `db/schema.ts` and `migrations/0001_projects.sql` for inspection and manual database setup.
+
 Example object move:
 
 ```json
