@@ -60,7 +60,7 @@ export default function Home() {
 
   return (
     <main className="app-shell">
-      <Header compare={compare} onCompare={() => setCompare((value) => !value)} />
+      <Header />
       <ModeBar view={view} compare={compare} optimized={optimized} onView={selectView} onOptimize={optimize} />
       <div className={`workspace-grid ${compare ? 'is-comparing' : ''}`}>
         {compare ? (
@@ -82,7 +82,7 @@ export default function Home() {
   );
 }
 
-function Header({ compare, onCompare }: { compare: boolean; onCompare: () => void }) {
+function Header() {
   return (
     <header className="topbar">
       <div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><span /></div><div className="brand-name">Dwellwise</div></div>
@@ -93,7 +93,7 @@ function Header({ compare, onCompare }: { compare: boolean; onCompare: () => voi
       </div>
       <div className="top-actions">
         <span className="saved"><i /> Saved just now</span>
-        <button className={`compare-button ${compare ? 'active' : ''}`} onClick={onCompare}><span className="split-icon" /> {compare ? 'Exit compare' : 'Compare'}</button>
+        {/* Comparison is temporarily hidden while the hackathon demo focuses on 2D, 3D, and sunlight. */}
         <button className="avatar" aria-label="Account">ML</button>
       </div>
     </header>
