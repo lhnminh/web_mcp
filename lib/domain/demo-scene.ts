@@ -45,3 +45,9 @@ export const demoScene: SceneDocument = {
   ],
   layouts: [layout('layout-a', 'Layout A', 'a'), layout('layout-b', 'Layout B', 'b')],
 };
+
+/** Fixed apartment shell used by the build-your-own planner. */
+export const blankApartmentScene: SceneDocument = {
+  ...demoScene,
+  layouts: demoScene.layouts.map((item) => ({ ...item, elements: [] })),
+};
