@@ -6,10 +6,9 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 
-type LayoutKey = 'A' | 'B';
-
 type SceneObject = {
   id: string;
+  catalogItemId: string;
   category: string;
   dimensions: { width: number; depth: number; height: number };
   transform: { position: { x: number; y: number; z: number }; rotation: { y: number } };
@@ -19,11 +18,10 @@ type ApartmentSceneProps = {
   hour: number;
   cameraStep: number;
   cameraReset: number;
-  layout: LayoutKey;
   shadows: boolean;
   lightPaths: boolean;
   measurements: boolean;
-  addedObjects: SceneObject[];
+  objects: SceneObject[];
 };
 
 const palette = {
@@ -258,18 +256,27 @@ function AddedFurniture({ item }: { item: SceneObject }) {
   );
 }
 
-function Furniture({ layout, addedObjects }: { layout: LayoutKey; addedObjects: SceneObject[] }) {
-  const isA = layout === 'A';
+function Furniture({ objects }: { objects: SceneObject[] }) {
+  const sofa = objects.find((item) => item.catalogItemId === 'sofa');
+  const sofaRotation = THREE.MathUtils.degToRad(sofa?.transform.rotation.y ?? 0);
   return (
     <group>
-      <Sofa position={isA ? [1.5, 0, 2.35] : [2.4, 0, 1.05]} rotation={isA ? 0 : Math.PI / 2} />
-      <CoffeeTable position={isA ? [1.65, 0, 3.45] : [3.25, 0, 1.1]} />
-      <Desk position={isA ? [3.62, 0, 1.0] : [1.1, 0, 3.55]} rotation={isA ? 0 : Math.PI / 2} />
-      <DiningSet position={isA ? [3.28, 0, 4.35] : [3.25, 0, 3.55]} rotation={isA ? 0 : Math.PI / 2} />
-      <Bed position={isA ? [6.35, 0, 1.65] : [6.55, 0, 2.2]} rotation={isA ? Math.PI / 2 : 0} />
-      <Dresser position={isA ? [7.15, 0, 3.35] : [5.45, 0, 3.55]} rotation={isA ? 0 : Math.PI / 2} />
+      {objects.map((item) => {
+        const position: [number, number, number] = [item.transform.position.x, item.transform.position.y, item.transform.position.z];
+        const rotation = THREE.MathUtils.degToRad(item.transform.rotation.y);
+        if (item.catalogItemId === 'sofa') return <Sofa key={item.id} position={position} rotation={rotation} />;
+        if (item.catalogItemId === 'desk') return <Desk key={item.id} position={position} rotation={rotation} />;
+        if (item.catalogItemId === 'table') return <DiningSet key={item.id} position={position} rotation={rotation} />;
+        if (item.catalogItemId === 'queen-bed') return <Bed key={item.id} position={position} rotation={rotation} />;
+        if (item.catalogItemId === 'dresser') return <Dresser key={item.id} position={position} rotation={rotation} />;
+        return <AddedFurniture key={item.id} item={item} />;
+      })}
+      {sofa && <CoffeeTable position={[
+        sofa.transform.position.x + Math.sin(sofaRotation) * 1.1,
+        0,
+        sofa.transform.position.z + Math.cos(sofaRotation) * 1.1,
+      ]} />}
       <Plant position={[0.55, 0, 0.65]} />
-      {addedObjects.map((item) => <AddedFurniture key={item.id} item={item} />)}
     </group>
   );
 }
@@ -312,7 +319,7 @@ function Sunlight({ hour, shadows, lightPaths }: { hour: number; shadows: boolea
   );
 }
 
-function Scene({ hour, layout, shadows, lightPaths, measurements, addedObjects }: Omit<ApartmentSceneProps, 'cameraStep' | 'cameraReset'>) {
+function Scene({ hour, shadows, lightPaths, measurements, objects }: Omit<ApartmentSceneProps, 'cameraStep' | 'cameraReset'>) {
   return (
     <>
       <color attach="background" args={['#d8dedb']} />
@@ -320,7 +327,7 @@ function Scene({ hour, layout, shadows, lightPaths, measurements, addedObjects }
       <hemisphereLight args={['#e6f0f2', '#9a765d', 0.72]} />
       <Sunlight hour={hour} shadows={shadows} lightPaths={lightPaths} />
       <Architecture measurements={measurements} />
-      <Furniture layout={layout} addedObjects={addedObjects} />
+      <Furniture objects={objects} />
       {shadows && <ContactShadows position={[3.9, 0.02, 4]} scale={11} opacity={0.32} blur={2.2} far={4} />}
     </>
   );
@@ -342,11 +349,10 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
       >
         <Scene
           hour={props.hour}
-          layout={props.layout}
           shadows={props.shadows}
           lightPaths={props.lightPaths}
           measurements={props.measurements}
-          addedObjects={props.addedObjects}
+          objects={props.objects}
         />
         <CameraController step={props.cameraStep} reset={props.cameraReset} />
       </Canvas>
