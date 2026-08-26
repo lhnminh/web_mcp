@@ -5,7 +5,7 @@ import ApartmentScene from './ApartmentScene';
 
 type View = 'plan' | 'three' | 'evaluation';
 type LayoutKey = 'A' | 'B';
-type RoomId = 'living' | 'bedroom';
+type RoomId = 'living' | 'bedroom' | 'kitchen' | 'bath';
 
 type SceneObject = {
   id: string;
@@ -20,10 +20,12 @@ type SceneObject = {
 
 type AddObjectInput = {
   name: string;
-  category: 'table' | 'storage' | 'other';
+  category: 'bed' | 'sofa' | 'desk' | 'table' | 'storage' | 'other';
   roomId: RoomId;
   dimensions: SceneObject['dimensions'];
 };
+
+const isRoomId = (value: string): value is RoomId => ['living', 'bedroom', 'kitchen', 'bath'].includes(value);
 
 type ApiProject = {
   revision: number;
@@ -71,8 +73,13 @@ export default function Home() {
   const [layout, setLayout] = useState<LayoutKey>('A');
   const [projectRevision, setProjectRevision] = useState<number | null>(null);
   const [sceneObjects, setSceneObjects] = useState<Record<LayoutKey, SceneObject[]>>({ A: [], B: [] });
+  const [collisionMessage, setCollisionMessage] = useState('');
+  const [zoom, setZoom] = useState(80);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const projectRevisionRef = useRef<number | null>(null);
   const moveSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const undoStack = useRef<Array<{ layout: LayoutKey; before: SceneObject; after: SceneObject }>>([]);
+  const redoStack = useRef<Array<{ layout: LayoutKey; before: SceneObject; after: SceneObject }>>([]);
 
   const syncProject = (project: ApiProject) => {
     const catalog = new Map(project.scene.catalog.map((item) => [item.id, item]));
@@ -80,7 +87,7 @@ export default function Home() {
       const sceneLayout = project.scene.layouts.find((item) => item.id === `layout-${key.toLowerCase()}`);
       return (sceneLayout?.elements ?? []).flatMap((element) => {
         const item = catalog.get(element.catalogItemId);
-        if (!item || (element.roomId !== 'living' && element.roomId !== 'bedroom')) return [];
+        if (!item || !isRoomId(element.roomId)) return [];
         return [{ id: element.id, catalogItemId: element.catalogItemId, name: item.name, category: item.category, userAdded: item.metadata?.userAdded === true, roomId: element.roomId, dimensions: item.dimensions, transform: element.transform }];
       });
     };
@@ -90,7 +97,7 @@ export default function Home() {
   };
 
   useEffect(() => {
-    fetch('/api/projects/demo')
+    fetch('/api/projects/blank')
       .then((response) => response.ok ? response.json() : Promise.reject(new Error('Could not load project')))
       .then((project: ApiProject) => syncProject(project))
       .catch(() => setProjectRevision(null));
@@ -108,7 +115,7 @@ export default function Home() {
 
   const addObject = async (input: AddObjectInput): Promise<string | null> => {
     if (projectRevision === null) return 'The project is still loading. Try again in a moment.';
-    const response = await fetch('/api/projects/demo/objects', {
+    const response = await fetch('/api/projects/blank/objects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ ...input, layoutId: `layout-${layout.toLowerCase()}`, expectedRevision: projectRevision }),
@@ -123,24 +130,35 @@ export default function Home() {
     return null;
   };
 
-  const moveObject = (objectId: string, position: { x: number; z: number }) => {
+  const moveObject = (objectId: string, placement: { position: { x: number; z: number }; roomId: RoomId }) => {
+    const objects = sceneObjects[layout];
+    const item = objects.find((candidate) => candidate.id === objectId);
+    if (!item) return false;
+    const candidate = { ...item, roomId: placement.roomId, transform: { ...item.transform, position: { ...item.transform.position, ...placement.position } } };
+    const collision = findCollision(objects, candidate);
+    if (collision) {
+      setCollisionMessage(`${item.name} overlaps ${collision.name}.`);
+      return false;
+    }
+    setCollisionMessage('');
     setSceneObjects((current) => ({
       ...current,
       [layout]: current[layout].map((item) => item.id === objectId
-        ? { ...item, transform: { ...item.transform, position: { ...item.transform.position, ...position } } }
+        ? candidate
         : item),
     }));
+    return true;
   };
 
-  const saveObjectPosition = (objectId: string, position: { x: number; z: number }) => {
-    const layoutAtMove = layout;
+  const saveObjectTransform = (objectId: string, transform: { position?: { x: number; z: number }; rotation?: { y: number }; dimensions?: SceneObject['dimensions']; roomId?: RoomId }, layoutOverride?: LayoutKey) => {
+    const layoutAtMove = layoutOverride ?? layout;
     moveSaveQueue.current = moveSaveQueue.current.then(async () => {
       const expectedRevision = projectRevisionRef.current;
       if (expectedRevision === null) return;
-      const response = await fetch(`/api/projects/demo/objects/${objectId}`, {
+      const response = await fetch(`/api/projects/blank/objects/${objectId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ layoutId: `layout-${layoutAtMove.toLowerCase()}`, expectedRevision, transform: { position } }),
+        body: JSON.stringify({ layoutId: `layout-${layoutAtMove.toLowerCase()}`, expectedRevision, transform: { position: transform.position, rotation: transform.rotation }, dimensions: transform.dimensions, roomId: transform.roomId }),
       });
       const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
       if (response.ok) {
@@ -152,11 +170,108 @@ export default function Home() {
     }).catch(() => undefined);
   };
 
+  const recordEdit = (before: SceneObject, after: SceneObject) => {
+    if (JSON.stringify(before) === JSON.stringify(after)) return;
+    undoStack.current.push({ layout, before, after });
+    redoStack.current = [];
+    setHistoryVersion((value) => value + 1);
+  };
+
+  const applyHistoryObject = (layoutKey: LayoutKey, object: SceneObject) => {
+    setLayout(layoutKey);
+    setSelected(object.id);
+    setSceneObjects((current) => ({ ...current, [layoutKey]: current[layoutKey].map((item) => item.id === object.id ? object : item) }));
+    saveObjectTransform(object.id, { position: { x: object.transform.position.x, z: object.transform.position.z }, rotation: { y: object.transform.rotation.y }, dimensions: object.dimensions, roomId: object.roomId }, layoutKey);
+    setCollisionMessage('');
+  };
+
+  const undo = () => {
+    const edit = undoStack.current.pop();
+    if (!edit) return;
+    redoStack.current.push(edit);
+    applyHistoryObject(edit.layout, edit.before);
+    setHistoryVersion((value) => value + 1);
+  };
+
+  const redo = () => {
+    const edit = redoStack.current.pop();
+    if (!edit) return;
+    undoStack.current.push(edit);
+    applyHistoryObject(edit.layout, edit.after);
+    setHistoryVersion((value) => value + 1);
+  };
+
+  const commitMove = (objectId: string, placement: ObjectPlacement, before: SceneObject) => {
+    const after = { ...before, roomId: placement.roomId, transform: { ...before.transform, position: { ...before.transform.position, ...placement.position } } };
+    recordEdit(before, after);
+    saveObjectTransform(objectId, { position: placement.position, roomId: placement.roomId });
+  };
+
+  const rotateObject = (objectId: string, degrees: number) => {
+    const objects = sceneObjects[layout];
+    const item = objects.find((candidate) => candidate.id === objectId);
+    if (!item) return;
+    const rotation = { y: ((item.transform.rotation.y + degrees) % 360 + 360) % 360 };
+    const rotated = { ...item, transform: { ...item.transform, rotation: { ...item.transform.rotation, ...rotation } } };
+    const position = clampObjectPosition(rotated, item.transform.position);
+    const candidate = { ...rotated, transform: { ...rotated.transform, position: { ...rotated.transform.position, ...position } } };
+    const collision = findCollision(objects, candidate);
+    if (collision) {
+      setCollisionMessage(`Cannot rotate ${item.name}: it would overlap ${collision.name}.`);
+      return;
+    }
+    setCollisionMessage('');
+    setSceneObjects((current) => ({ ...current, [layout]: current[layout].map((object) => object.id === objectId ? candidate : object) }));
+    recordEdit(item, candidate);
+    saveObjectTransform(objectId, { position, rotation });
+  };
+
+  const removeObject = async (objectId: string) => {
+    const expectedRevision = projectRevisionRef.current;
+    if (expectedRevision === null) return;
+    const response = await fetch(`/api/projects/blank/objects/${objectId}`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ layoutId: `layout-${layout.toLowerCase()}`, expectedRevision }),
+    });
+    const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
+    if (response.ok) {
+      syncProject(result);
+      setSelected('');
+      setCollisionMessage('');
+    } else if (result.current) syncProject(result.current);
+    else setCollisionMessage(result.error ?? 'The object could not be removed.');
+  };
+
+  const resizeObject = (objectId: string, dimensions: SceneObject['dimensions']) => {
+    const objects = sceneObjects[layout];
+    const item = objects.find((candidate) => candidate.id === objectId);
+    if (!item) return false;
+    const resized = { ...item, dimensions };
+    const position = clampObjectPosition(resized, resized.transform.position);
+    const candidate = { ...resized, transform: { ...resized.transform, position: { ...resized.transform.position, ...position } } };
+    const collision = findCollision(objects, candidate);
+    if (collision) {
+      setCollisionMessage(`Cannot resize ${item.name}: it would overlap ${collision.name}.`);
+      return false;
+    }
+    setCollisionMessage('');
+    setSceneObjects((current) => ({ ...current, [layout]: current[layout].map((object) => object.id === objectId ? candidate : object) }));
+    return true;
+  };
+
+  const saveObjectDimensions = (objectId: string, dimensions: SceneObject['dimensions'], beforeDimensions: SceneObject['dimensions']) => {
+    const item = sceneObjects[layout].find((candidate) => candidate.id === objectId);
+    if (!item) return;
+    recordEdit({ ...item, dimensions: beforeDimensions }, item);
+    saveObjectTransform(objectId, { position: { x: item.transform.position.x, z: item.transform.position.z }, dimensions });
+  };
+
   return (
     <main className="app-shell">
       <Header />
-      <ModeBar view={view} compare={compare} optimized={optimized} onView={selectView} onOptimize={optimize} />
-      <div className={`workspace-grid ${compare ? 'is-comparing' : ''} ${view === 'plan' && !compare ? 'has-object-panel' : ''}`}>
+      <ModeBar view={view} compare={compare} optimized={optimized} zoom={zoom} canUndo={historyVersion >= 0 && undoStack.current.length > 0} canRedo={redoStack.current.length > 0} onUndo={undo} onRedo={redo} onZoom={setZoom} onView={selectView} onOptimize={optimize} />
+      <div className={`workspace-grid ${compare ? 'is-comparing' : ''} ${view === 'plan' && !compare ? 'plan-builder-grid' : ''}`}>
         {compare ? (
           <ComparisonView onBack={() => setCompare(false)} />
         ) : (
@@ -164,13 +279,12 @@ export default function Home() {
             {view === 'plan' && <FurniturePanel selected={selected} onSelect={setSelected} objects={sceneObjects[layout]} />}
             {view === 'three' && <PreviewControls hour={hour} camera={camera} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} onHour={setHour} onCamera={setCamera} onReset={() => setCameraReset((value) => value + 1)} onShadows={setShowShadows} onLightPaths={setShowLightPaths} onMeasurements={setShowMeasurements} />}
             {view === 'evaluation' && <PriorityPanel />}
-
-            {view === 'plan' && <PlanView selected={selected} onSelect={setSelected} layout={layout} onLayout={setLayout} objects={sceneObjects[layout]} onMove={moveObject} onCommitMove={saveObjectPosition} />}
+            {view === 'plan' && <PlanView selected={selected} onSelect={setSelected} layout={layout} onLayout={setLayout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={collisionMessage} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} />}
             {view === 'three' && <ThreeDView hour={hour} camera={camera} cameraReset={cameraReset} layout={layout} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} objects={sceneObjects[layout]} onLayout={setLayout} />}
             {view === 'evaluation' && <EvaluationView />}
           </>
         )}
-        {view === 'plan' && !compare && <AddObjectPanel loading={projectRevision === null} onAdd={addObject} />}
+        {view === 'plan' && !compare && <AddObjectPanel loading={projectRevision === null} onAdd={addObject} selectedObject={sceneObjects[layout].find((item) => item.id === selected)} onResize={resizeObject} onCommitResize={saveObjectDimensions} />}
       </div>
     </main>
   );
@@ -194,7 +308,7 @@ function Header() {
   );
 }
 
-function ModeBar({ view, compare, optimized, onView, onOptimize }: { view: View; compare: boolean; optimized: boolean; onView: (view: View) => void; onOptimize: () => void }) {
+function ModeBar({ view, compare, optimized, zoom, canUndo, canRedo, onUndo, onRedo, onZoom, onView, onOptimize }: { view: View; compare: boolean; optimized: boolean; zoom: number; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; onZoom: (zoom: number) => void; onView: (view: View) => void; onOptimize: () => void }) {
   return (
     <section className="modebar">
       <nav className="view-tabs" aria-label="Apartment views">
@@ -205,7 +319,7 @@ function ModeBar({ view, compare, optimized, onView, onOptimize }: { view: View;
       {compare ? (
         <div className="comparison-mode-title"><span className="split-icon" /> SIDE-BY-SIDE DECISION</div>
       ) : view === 'plan' ? (
-        <div className="plan-tools"><button aria-label="Undo">↶</button><button aria-label="Redo" disabled>↷</button><span /><button aria-label="Select" className="active">⌁</button><button aria-label="Measure">⌟</button><span /><button aria-label="Zoom out">−</button><strong>82%</strong><button aria-label="Zoom in">+</button></div>
+        <div className="plan-tools"><button aria-label="Undo last furniture edit" onClick={onUndo} disabled={!canUndo}>↶</button><button aria-label="Redo furniture edit" onClick={onRedo} disabled={!canRedo}>↷</button><span /><button aria-label="Zoom out" onClick={() => onZoom(Math.max(50, zoom - 5))} disabled={zoom <= 50}>−</button><strong>{zoom}%</strong><button aria-label="Zoom in" onClick={() => onZoom(Math.min(120, zoom + 5))} disabled={zoom >= 120}>+</button></div>
       ) : view === 'three' ? (
         <div className="view-context">LIVE SUN STUDY · MAY 12</div>
       ) : (
@@ -217,23 +331,18 @@ function ModeBar({ view, compare, optimized, onView, onOptimize }: { view: View;
 }
 
 function FurniturePanel({ selected, onSelect, objects }: { selected: string; onSelect: (item: string) => void; objects: SceneObject[] }) {
-  const added = objects.filter((item) => item.userAdded);
+  const [query, setQuery] = useState('');
+  const visible = objects.filter((item) => item.name.toLowerCase().includes(query.toLowerCase()));
   return (
     <aside className="library-panel">
-      <div className="panel-heading"><div><span className="eyebrow">YOUR SPACE</span><h2>Furniture</h2></div><span className="object-count">{5 + added.length}</span></div>
-      <div className="fit-summary"><div><strong>{5 + added.length} objects</strong><span>in this layout</span></div><div className="fit-ring"><span>92</span></div></div>
-      <label className="search-box"><span>⌕</span><input aria-label="Search furniture" placeholder="Search furniture" /></label>
+      <div className="panel-heading"><div><span className="eyebrow">YOUR SPACE</span><h2>Furniture</h2></div><span className="object-count">{objects.length}</span></div>
+      <div className="fit-summary"><div><strong>{objects.length} {objects.length === 1 ? 'object' : 'objects'}</strong><span>in this layout</span></div><div className="fit-ring"><span>{objects.length ? '✓' : '0'}</span></div></div>
+      <label className="search-box"><span>⌕</span><input aria-label="Search furniture" placeholder="Search furniture" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
       <div className="furniture-list">
-        {furniture.map((item) => {
-          const object = objects.find((candidate) => candidate.catalogItemId === item.catalogItemId);
-          return (
-          <button key={item.kind} className={`furniture-row ${selected === object?.id ? 'selected' : ''}`} onClick={() => object && onSelect(object.id)}>
-            <span className={`furniture-thumb ${item.kind}`}><i /></span><span className="furniture-copy"><strong>{item.label}</strong><small>{item.size}</small></span><span className="drag-dots">⠿</span>
-          </button>
-        )})}
-        {added.map((item) => (
+        {visible.length === 0 && <div className="empty-furniture-list"><span>＋</span><strong>No furniture yet</strong><p>Add an item from the object library on the right.</p></div>}
+        {visible.map((item) => (
           <button key={item.id} className={`furniture-row ${selected === item.id ? 'selected' : ''}`} onClick={() => onSelect(item.id)}>
-            <span className="furniture-thumb custom"><i /></span><span className="furniture-copy"><strong>{item.name}</strong><small>{formatDimensions(item.dimensions)}</small></span><span className="drag-dots">⠿</span>
+            <span className={`furniture-thumb ${furnitureVisualKind(item)}`}><i /></span><span className="furniture-copy"><strong>{item.name}</strong><small>{formatDimensions(item.dimensions)}</small></span><span className="drag-dots">⠿</span>
           </button>
         ))}
       </div>
@@ -242,41 +351,40 @@ function FurniturePanel({ selected, onSelect, objects }: { selected: string; onS
   );
 }
 
-function PlanView({ selected, onSelect, layout, onLayout, objects, onMove, onCommitMove }: { selected: string; onSelect: (item: string) => void; layout: LayoutKey; onLayout: (layout: LayoutKey) => void; objects: SceneObject[]; onMove: (id: string, position: { x: number; z: number }) => void; onCommitMove: (id: string, position: { x: number; z: number }) => void }) {
-  const byCatalog = (catalogItemId: string) => objects.find((item) => item.catalogItemId === catalogItemId);
-  const sofa = byCatalog('sofa');
-  const table = byCatalog('table');
-  const desk = byCatalog('desk');
-  const bed = byCatalog('queen-bed');
-  const dresser = byCatalog('dresser');
+function furnitureVisualKind(item: SceneObject) {
+  const name = item.name.toLowerCase();
+  if (name.includes('bed')) return 'bed';
+  if (name.includes('sofa')) return 'sofa';
+  if (name.includes('desk')) return 'desk';
+  if (name.includes('table')) return 'table';
+  if (name.includes('dresser')) return 'dresser';
+  return 'custom';
+}
+
+function PlanView({ selected, onSelect, layout, onLayout, zoom, objects, collisionMessage, onMove, onCommitMove, onRotate, onDelete }: { selected: string; onSelect: (item: string) => void; layout: LayoutKey; onLayout: (layout: LayoutKey) => void; zoom: number; objects: SceneObject[]; collisionMessage: string; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void }) {
+  const selectedObject = objects.find((item) => item.id === selected);
   const shared = { selected, onSelect, onMove, onCommitMove };
   return (
     <section className="plan-workspace" aria-label="2D floor plan editor">
       <div className="layout-switch"><span>LAYOUT</span><button className={layout === 'A' ? 'active' : ''} onClick={() => onLayout('A')}>A</button><button className={layout === 'B' ? 'active' : ''} onClick={() => onLayout('B')}>B</button></div>
+      {selectedObject && <div className="object-toolbar" aria-label={`Edit ${selectedObject.name}`}><strong>{selectedObject.name}</strong><button onClick={() => onRotate(selectedObject.id, -90)} aria-label="Rotate left">↶ 90°</button><button onClick={() => onRotate(selectedObject.id, 90)} aria-label="Rotate right">↷ 90°</button><button className="delete-object" onClick={() => onDelete(selectedObject.id)} aria-label={`Remove ${selectedObject.name}`}>Remove</button></div>}
       <div className="drawing-index"><strong>A–01</strong><span>FURNITURE PLAN</span><small>ISSUE 02 · AI STUDY</small></div>
       <div className="north-marker"><span>N</span><i /></div><div className="scale-key"><span /> 5 ft</div>
-      <div className={`floor-plan-wrap layout-${layout.toLowerCase()}`}>
+      <div className={`floor-plan-wrap layout-${layout.toLowerCase()}`} style={{ transform: `translate(-50%, -49%) scale(${zoom / 100})` }}>
         <div className="measure top">24′ 6″</div><div className="measure left">30′ 3″</div>
         <div className="floor-plan">
           <div className="room living">
             <div className="room-label"><strong>LIVING + DINING</strong><span>14′ 2″ × 18′ 6″</span></div>
             <div className="window window-top one"><span>WINDOW · EAST</span></div><div className="window window-top two" />
-            {sofa && <DraggablePlanObject item={sofa} className="sofa" {...shared}><i /><i /><i /></DraggablePlanObject>}
-            {table && <DraggablePlanObject item={table} className="table" {...shared}><i /><i /><i /><i /></DraggablePlanObject>}
-            {desk && <DraggablePlanObject item={desk} className="desk" {...shared}><i className="chair" /><span className="computer" /><b className="clearance">3′ CLEAR</b></DraggablePlanObject>}
-            {objects.filter((item) => item.userAdded && item.roomId === 'living').map((item) => <DraggablePlanObject key={item.id} item={item} className="added-object" {...shared}><span>{item.name}</span></DraggablePlanObject>)}
-            <div className="rug" /><div className="coffee-table" />
           </div>
           <div className="room bedroom">
             <div className="room-label"><strong>BEDROOM</strong><span>11′ 8″ × 12′ 4″</span></div><div className="window window-right"><span>WINDOW · SOUTH</span></div>
-            {bed && <DraggablePlanObject item={bed} className="bed" {...shared}><span /><i /><i /></DraggablePlanObject>}
-            {dresser && <DraggablePlanObject item={dresser} className="dresser" {...shared}><i /><i /><i /></DraggablePlanObject>}
-            {objects.filter((item) => item.userAdded && item.roomId === 'bedroom').map((item) => <DraggablePlanObject key={item.id} item={item} className="added-object" {...shared}><span>{item.name}</span></DraggablePlanObject>)}
             <div className="closet"><span>CLOSET</span><i /><i /></div><div className="door-swing bedroom-door" />
           </div>
           <div className="room kitchen"><div className="room-label"><strong>KITCHEN</strong><span>8′ 6″ × 9′ 2″</span></div><div className="counter counter-top"><i /><i /><i /></div><div className="counter counter-side"><i /></div></div>
           <div className="room bath"><div className="room-label"><strong>BATH</strong><span>5′ 8″ × 8′ 1″</span></div><div className="bath-fixtures"><span /><i /><b /></div></div>
           <div className="entry-label">ENTRY</div><div className="door-swing entry-door" /><div className="clear-path"><span>3′ 4″ WALKWAY</span></div>
+          {objects.map((item) => <PlanFurniture key={item.id} item={item} {...shared} />)}
         </div>
       </div>
       <div className="sheet-titleblock" aria-label="Drawing title block">
@@ -284,69 +392,127 @@ function PlanView({ selected, onSelect, layout, onLayout, objects, onMove, onCom
         <div><span>DRAWING</span><strong>FURNITURE + CLEARANCE PLAN</strong></div>
         <div className="sheet-meta"><span>SCALE<br /><b>1/4″ = 1′–0″</b></span><span>DATE<br /><b>26 AUG 2026</b></span><strong>A–01</strong></div>
       </div>
-      <div className="plan-status"><span className="status-good">↔ Drag furniture to move</span><span>2D + 3D positions stay synchronized</span></div>
+      <div className={`plan-status ${collisionMessage ? 'has-collision' : ''}`} role="status"><span className={collisionMessage ? 'status-collision' : 'status-good'}>{collisionMessage ? `⚠ ${collisionMessage}` : '✓ No furniture collisions'}</span><span>Drag anywhere in the apartment · arrows move · toolbar rotates/removes</span></div>
     </section>
   );
 }
 
-const roomBounds: Record<RoomId, { x: number; z: number; width: number; depth: number }> = {
-  living: { x: 0, z: 0, width: 4.32, depth: 5.64 },
-  bedroom: { x: 4.32, z: 0, width: 3.55, depth: 3.76 },
+function PlanFurniture({ item, ...props }: { item: SceneObject; selected: string; onSelect: (id: string) => void; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void }) {
+  const name = item.name.toLowerCase();
+  if (item.category === 'sofa' || name.includes('sofa')) return <DraggablePlanObject item={item} className="sofa" {...props}><i /><i /><i /></DraggablePlanObject>;
+  if (item.category === 'desk' || name.includes('desk')) return <DraggablePlanObject item={item} className="desk" {...props}><i className="chair" /><span className="computer" /><b className="clearance">3′ CLEAR</b></DraggablePlanObject>;
+  if (item.category === 'bed' || name.includes('bed')) return <DraggablePlanObject item={item} className="bed" {...props}><span /><i /><i /></DraggablePlanObject>;
+  if (name.includes('dining') || name.includes('coffee table') || item.category === 'table') return <DraggablePlanObject item={item} className="table" {...props}><i /><i /><i /><i /></DraggablePlanObject>;
+  if (name.includes('dresser')) return <DraggablePlanObject item={item} className="dresser" {...props}><i /><i /><i /></DraggablePlanObject>;
+  return <DraggablePlanObject item={item} className="added-object" {...props}><span>{item.name}</span></DraggablePlanObject>;
+}
+
+type ObjectPlacement = { position: { x: number; z: number }; roomId: RoomId };
+const apartmentBounds = { width: 7.87, depth: 8.43 };
+
+const roomDisplayBounds: Record<RoomId, { left: number; top: number; width: number; height: number }> = {
+  living: { left: 0, top: 0, width: 370 / 620, height: 322 / 515 },
+  bedroom: { left: 368 / 620, top: 0, width: 252 / 620, height: 275 / 515 },
+  kitchen: { left: 0, top: 325 / 515, width: 268 / 620, height: 190 / 515 },
+  bath: { left: 456 / 620, top: 278 / 515, width: 164 / 620, height: 237 / 515 },
 };
 
+function displayPointFor(item: SceneObject) {
+  return {
+    x: item.transform.position.x / apartmentBounds.width,
+    y: item.transform.position.z / apartmentBounds.depth,
+  };
+}
+
+function placementFromDisplayPoint(x: number, y: number, preferredRoom: RoomId): ObjectPlacement {
+  const entries = Object.entries(roomDisplayBounds) as Array<[RoomId, (typeof roomDisplayBounds)[RoomId]]>;
+  const containing = entries.filter(([, room]) => x >= room.left && x <= room.left + room.width && y >= room.top && y <= room.top + room.height);
+  const [roomId] = containing.find(([id]) => id === preferredRoom) ?? containing[0] ?? entries.reduce((nearest, entry) => {
+    const center = (room: (typeof roomDisplayBounds)[RoomId]) => ({ x: room.left + room.width / 2, y: room.top + room.height / 2 });
+    const a = center(nearest[1]);
+    const b = center(entry[1]);
+    return Math.hypot(x - b.x, y - b.y) < Math.hypot(x - a.x, y - a.y) ? entry : nearest;
+  });
+  return {
+    roomId,
+    position: {
+      x: x * apartmentBounds.width,
+      z: y * apartmentBounds.depth,
+    },
+  };
+}
+
 function clampObjectPosition(item: SceneObject, position: { x: number; z: number }) {
-  const room = roomBounds[item.roomId];
   const angle = item.transform.rotation.y * Math.PI / 180;
   const halfX = Math.abs(Math.cos(angle)) * item.dimensions.width / 2 + Math.abs(Math.sin(angle)) * item.dimensions.depth / 2;
   const halfZ = Math.abs(Math.sin(angle)) * item.dimensions.width / 2 + Math.abs(Math.cos(angle)) * item.dimensions.depth / 2;
   return {
-    x: Math.max(room.x + halfX, Math.min(room.x + room.width - halfX, position.x)),
-    z: Math.max(room.z + halfZ, Math.min(room.z + room.depth - halfZ, position.z)),
+    x: Math.max(halfX, Math.min(apartmentBounds.width - halfX, position.x)),
+    z: Math.max(halfZ, Math.min(apartmentBounds.depth - halfZ, position.z)),
   };
 }
 
+function objectBounds(item: SceneObject) {
+  const angle = item.transform.rotation.y * Math.PI / 180;
+  const halfX = Math.abs(Math.cos(angle)) * item.dimensions.width / 2 + Math.abs(Math.sin(angle)) * item.dimensions.depth / 2;
+  const halfZ = Math.abs(Math.sin(angle)) * item.dimensions.width / 2 + Math.abs(Math.cos(angle)) * item.dimensions.depth / 2;
+  return { left: item.transform.position.x - halfX, right: item.transform.position.x + halfX, top: item.transform.position.z - halfZ, bottom: item.transform.position.z + halfZ };
+}
+
+function findCollision(objects: SceneObject[], candidate: SceneObject) {
+  const a = objectBounds(candidate);
+  return objects.find((item) => {
+    if (item.id === candidate.id) return false;
+    const b = objectBounds(item);
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  });
+}
+
 function planObjectStyle(item: SceneObject) {
-  const room = roomBounds[item.roomId];
+  const point = displayPointFor(item);
   return {
-    left: `${((item.transform.position.x - room.x) / room.width) * 100}%`,
-    top: `${((item.transform.position.z - room.z) / room.depth) * 100}%`,
-    width: `${Math.max(8, (item.dimensions.width / room.width) * 100)}%`,
-    height: `${Math.max(8, (item.dimensions.depth / room.depth) * 100)}%`,
+    left: `${point.x * 100}%`,
+    top: `${point.y * 100}%`,
+    width: `${Math.max(3, (item.dimensions.width / apartmentBounds.width) * 100)}%`,
+    height: `${Math.max(3, (item.dimensions.depth / apartmentBounds.depth) * 100)}%`,
     transform: `translate(-50%, -50%) rotate(${item.transform.rotation.y}deg)`,
   };
 }
 
-function DraggablePlanObject({ item, className, selected, onSelect, onMove, onCommitMove, children }: { item: SceneObject; className: string; selected: string; onSelect: (id: string) => void; onMove: (id: string, position: { x: number; z: number }) => void; onCommitMove: (id: string, position: { x: number; z: number }) => void; children: ReactNode }) {
-  const drag = useRef<{ pointerId: number; clientX: number; clientY: number; startX: number; startZ: number; latest: { x: number; z: number } } | null>(null);
+function DraggablePlanObject({ item, className, selected, onSelect, onMove, onCommitMove, children }: { item: SceneObject; className: string; selected: string; onSelect: (id: string) => void; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; children: ReactNode }) {
+  const drag = useRef<{ pointerId: number; clientX: number; clientY: number; startDisplayX: number; startDisplayY: number; latest: ObjectPlacement; before: SceneObject } | null>(null);
 
   const pointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
     onSelect(item.id);
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, startX: item.transform.position.x, startZ: item.transform.position.z, latest: { x: item.transform.position.x, z: item.transform.position.z } };
+    const start = displayPointFor(item);
+    drag.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, startDisplayX: start.x, startDisplayY: start.y, latest: { roomId: item.roomId, position: { x: item.transform.position.x, z: item.transform.position.z } }, before: structuredClone(item) };
   };
 
   const pointerMove = (event: PointerEvent<HTMLButtonElement>) => {
     if (!drag.current || drag.current.pointerId !== event.pointerId) return;
-    const roomElement = event.currentTarget.parentElement;
-    if (!roomElement) return;
-    const bounds = roomElement.getBoundingClientRect();
-    const room = roomBounds[item.roomId];
-    const position = clampObjectPosition(item, {
-      x: drag.current.startX + ((event.clientX - drag.current.clientX) / bounds.width) * room.width,
-      z: drag.current.startZ + ((event.clientY - drag.current.clientY) / bounds.height) * room.depth,
-    });
-    drag.current.latest = position;
-    onMove(item.id, position);
+    const floorPlan = event.currentTarget.closest('.floor-plan');
+    if (!floorPlan) return;
+    const bounds = floorPlan.getBoundingClientRect();
+    const placement = placementFromDisplayPoint(
+      drag.current.startDisplayX + (event.clientX - drag.current.clientX) / bounds.width,
+      drag.current.startDisplayY + (event.clientY - drag.current.clientY) / bounds.height,
+      drag.current.latest.roomId,
+    );
+    const candidate = { ...item, roomId: placement.roomId };
+    placement.position = clampObjectPosition(candidate, placement.position);
+    if (onMove(item.id, placement)) drag.current.latest = placement;
   };
 
   const finishDrag = (event: PointerEvent<HTMLButtonElement>) => {
     if (!drag.current || drag.current.pointerId !== event.pointerId) return;
-    const position = drag.current.latest;
+    const placement = drag.current.latest;
+    const before = drag.current.before;
     drag.current = null;
     event.currentTarget.releasePointerCapture(event.pointerId);
-    onCommitMove(item.id, position);
+    onCommitMove(item.id, placement, before);
   };
 
   const keyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -359,8 +525,8 @@ function DraggablePlanObject({ item, className, selected, onSelect, onMove, onCo
     if (!delta) return;
     event.preventDefault();
     const position = clampObjectPosition(item, { x: item.transform.position.x + delta.x, z: item.transform.position.z + delta.z });
-    onMove(item.id, position);
-    onCommitMove(item.id, position);
+    const placement = { roomId: item.roomId, position };
+    if (onMove(item.id, placement)) onCommitMove(item.id, placement, structuredClone(item));
   };
 
   return (
@@ -372,22 +538,54 @@ function DraggablePlanObject({ item, className, selected, onSelect, onMove, onCo
       onPointerUp={finishDrag}
       onPointerCancel={finishDrag}
       onKeyDown={keyDown}
-      aria-label={`${item.name}. Drag to move, or use arrow keys.`}
-      title="Drag to move · Arrow keys for precise movement"
+      aria-label={`${item.name}. Drag or use arrow keys to move. Use the edit toolbar to rotate or remove.`}
+      title="Select and drag · Arrow keys for precise movement"
     >
       {children}
+      <em className="object-height-label" style={{ transform: `rotate(${-item.transform.rotation.y}deg)` }}>
+        H {item.dimensions.height.toFixed(2)} m
+      </em>
     </button>
   );
 }
 
 const objectPresets: Array<AddObjectInput & { shortLabel: string }> = [
+  { shortLabel: 'Queen bed', name: 'Queen bed', category: 'bed', roomId: 'bedroom', dimensions: { width: 1.52, depth: 2.03, height: 0.61 } },
+  { shortLabel: 'Sofa', name: 'Sofa', category: 'sofa', roomId: 'living', dimensions: { width: 2.18, depth: 0.91, height: 0.84 } },
+  { shortLabel: 'Desk', name: 'Desk', category: 'desk', roomId: 'living', dimensions: { width: 1.22, depth: 0.61, height: 0.76 } },
+  { shortLabel: 'Dining table', name: 'Dining table', category: 'table', roomId: 'living', dimensions: { width: 1.22, depth: 0.91, height: 0.76 } },
+  { shortLabel: 'Dresser', name: 'Dresser', category: 'storage', roomId: 'bedroom', dimensions: { width: 1.52, depth: 0.51, height: 0.84 } },
   { shortLabel: 'Chair', name: 'Accent chair', category: 'other', roomId: 'living', dimensions: { width: 0.76, depth: 0.81, height: 0.86 } },
   { shortLabel: 'Nightstand', name: 'Nightstand', category: 'storage', roomId: 'bedroom', dimensions: { width: 0.56, depth: 0.46, height: 0.61 } },
   { shortLabel: 'Bookcase', name: 'Bookcase', category: 'storage', roomId: 'living', dimensions: { width: 0.91, depth: 0.35, height: 1.83 } },
   { shortLabel: 'Coffee table', name: 'Coffee table', category: 'table', roomId: 'living', dimensions: { width: 1.07, depth: 0.61, height: 0.43 } },
 ];
 
-function AddObjectPanel({ loading, onAdd }: { loading: boolean; onAdd: (input: AddObjectInput) => Promise<string | null> }) {
+function DimensionPreview({ name, dimensions }: { name: string; dimensions: SceneObject['dimensions'] }) {
+  const previewWidth = Math.min(126, 42 + dimensions.width * 24);
+  const previewHeight = Math.min(88, 20 + dimensions.height * 23);
+  const previewDepth = Math.min(25, 5 + dimensions.depth * 7);
+
+  return (
+    <section className="dimension-preview" aria-label={`Live size preview for ${name}`}>
+      <div className="dimension-preview-title"><span>LIVE SIZE PREVIEW</span><strong>{name}</strong></div>
+      <div className="dimension-preview-stage">
+        <span className="preview-height-guide" style={{ height: `${previewHeight}px` }}><b>H</b></span>
+        <div
+          className="dimension-preview-object"
+          style={{
+            width: `${previewWidth}px`,
+            height: `${previewHeight}px`,
+            boxShadow: `${previewDepth}px ${-Math.round(previewDepth / 2)}px 0 #aebdc0`,
+          }}
+        />
+      </div>
+      <div className="dimension-preview-values"><span>W {dimensions.width.toFixed(2)}</span><span>D {dimensions.depth.toFixed(2)}</span><span>H {dimensions.height.toFixed(2)} m</span></div>
+    </section>
+  );
+}
+
+function AddObjectPanel({ loading, onAdd, selectedObject, onResize, onCommitResize }: { loading: boolean; onAdd: (input: AddObjectInput) => Promise<string | null>; selectedObject?: SceneObject; onResize: (id: string, dimensions: SceneObject['dimensions']) => boolean; onCommitResize: (id: string, dimensions: SceneObject['dimensions'], before: SceneObject['dimensions']) => void }) {
   const [presetIndex, setPresetIndex] = useState(0);
   const [name, setName] = useState(objectPresets[0].name);
   const [roomId, setRoomId] = useState<RoomId>('living');
@@ -395,6 +593,7 @@ function AddObjectPanel({ loading, onAdd }: { loading: boolean; onAdd: (input: A
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const resizeStart = useRef<SceneObject['dimensions'] | null>(null);
 
   const choosePreset = (index: number) => {
     const preset = objectPresets[index];
@@ -414,21 +613,31 @@ function AddObjectPanel({ loading, onAdd }: { loading: boolean; onAdd: (input: A
     const message = await onAdd({ name: name.trim(), category: objectPresets[presetIndex].category, roomId, dimensions });
     setSaving(false);
     if (message) setError(message);
-    else setSuccess(`${name.trim()} placed in ${roomId === 'living' ? 'Living + Dining' : 'Bedroom'}.`);
+    else setSuccess(`${name.trim()} placed in ${{ living: 'Living + Dining', bedroom: 'Bedroom', kitchen: 'Kitchen', bath: 'Bath' }[roomId]}.`);
   };
 
-  const setDimension = (key: keyof SceneObject['dimensions'], value: string) => {
-    setDimensions((current) => ({ ...current, [key]: Math.max(0.1, Number(value) || 0.1) }));
+  const activeDimensions = selectedObject?.dimensions ?? dimensions;
+  const setDimension = (key: keyof SceneObject['dimensions'], value: number) => {
+    const next = { ...activeDimensions, [key]: Math.max(0.1, value || 0.1) };
+    if (selectedObject) onResize(selectedObject.id, next);
+    else setDimensions(next);
+  };
+  const commitDimension = (key: keyof SceneObject['dimensions'], value: number) => {
+    if (selectedObject) {
+      onCommitResize(selectedObject.id, { ...selectedObject.dimensions, [key]: value }, resizeStart.current ?? selectedObject.dimensions);
+      resizeStart.current = null;
+    }
   };
 
   return (
     <aside className="add-object-panel">
       <div className="add-object-heading"><span className="eyebrow">OBJECT LIBRARY</span><h2>Add object</h2><p>Choose an object, confirm its size, then place it into a room.</p></div>
       <form onSubmit={submit}>
-        <fieldset><legend>OBJECT TYPE</legend><div className="preset-grid">{objectPresets.map((preset, index) => <button type="button" key={preset.shortLabel} className={presetIndex === index ? 'active' : ''} onClick={() => choosePreset(index)}><i className={`preset-icon preset-${index}`} />{preset.shortLabel}</button>)}</div></fieldset>
+        <fieldset><legend>OBJECT TYPE</legend><div className="preset-grid">{objectPresets.map((preset, index) => <button type="button" key={preset.shortLabel} className={presetIndex === index ? 'active' : ''} onClick={() => choosePreset(index)}><i className={`preset-icon preset-${preset.category}`} />{preset.shortLabel}</button>)}</div></fieldset>
         <label className="field-label">NAME<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <label className="field-label">PLACE IN<select value={roomId} onChange={(event) => setRoomId(event.target.value as RoomId)}><option value="living">Living + Dining</option><option value="bedroom">Bedroom</option></select></label>
-        <fieldset><legend>DIMENSIONS · METERS</legend><div className="dimension-grid"><label>W<input type="number" min="0.1" max="5" step="0.01" value={dimensions.width} onChange={(event) => setDimension('width', event.target.value)} /></label><label>D<input type="number" min="0.1" max="5" step="0.01" value={dimensions.depth} onChange={(event) => setDimension('depth', event.target.value)} /></label><label>H<input type="number" min="0.1" max="5" step="0.01" value={dimensions.height} onChange={(event) => setDimension('height', event.target.value)} /></label></div></fieldset>
+        <label className="field-label">PLACE IN<select value={roomId} onChange={(event) => setRoomId(event.target.value as RoomId)}><option value="living">Living + Dining</option><option value="bedroom">Bedroom</option><option value="kitchen">Kitchen</option><option value="bath">Bath</option></select></label>
+        <DimensionPreview name={selectedObject?.name ?? name} dimensions={activeDimensions} />
+        <fieldset className="rhs-dimension-sliders"><legend>{selectedObject ? `EDIT ${selectedObject.name.toUpperCase()} · METERS` : 'DIMENSIONS · METERS'}</legend>{(['width', 'depth', 'height'] as const).map((key) => <label key={key}><span>{key[0].toUpperCase()} · {key.toUpperCase()}</span><input type="range" min="0.1" max={key === 'height' ? 3 : 4} step="0.01" value={activeDimensions[key]} onPointerDown={() => { resizeStart.current = selectedObject ? { ...selectedObject.dimensions } : null; }} onKeyDown={() => { if (!resizeStart.current && selectedObject) resizeStart.current = { ...selectedObject.dimensions }; }} onChange={(event) => setDimension(key, Number(event.target.value))} onPointerUp={(event) => commitDimension(key, Number(event.currentTarget.value))} onKeyUp={(event) => commitDimension(key, Number(event.currentTarget.value))} /><output>{activeDimensions[key].toFixed(2)}</output></label>)}</fieldset>
         <button className="place-object" disabled={loading || saving || !name.trim()}>{saving ? 'Placing…' : loading ? 'Loading project…' : '＋ Place in room'}</button>
         {error && <p className="object-form-message error" role="alert">{error}</p>}
         {success && <p className="object-form-message success" role="status">✓ {success}</p>}

@@ -1,5 +1,5 @@
 import { createProject, getProject, updateProject } from '@/db/projects';
-import { demoScene } from '@/lib/domain/demo-scene';
+import { blankApartmentScene, demoScene } from '@/lib/domain/demo-scene';
 import { parseScene, SceneValidationError } from '@/lib/domain/scene-validation';
 
 type Context = { params: Promise<{ id: string }> };
@@ -9,6 +9,9 @@ export async function GET(_request: Request, context: Context) {
   let project = await getProject(id);
   if (!project && id === 'demo') {
     project = await createProject({ id: 'demo', name: '197 Bedford Avenue · 4B', scene: demoScene });
+  }
+  if (!project && id === 'blank') {
+    project = await createProject({ id: 'blank', name: 'Untitled apartment plan', scene: blankApartmentScene });
   }
   return project
     ? Response.json(project)

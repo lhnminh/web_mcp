@@ -2,13 +2,14 @@
 
 import { ContactShadows, OrbitControls, RoundedBox } from '@react-three/drei';
 import { Canvas, useThree } from '@react-three/fiber';
-import { useEffect, useMemo, useRef } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 
 type SceneObject = {
   id: string;
   catalogItemId: string;
+  name: string;
   category: string;
   dimensions: { width: number; depth: number; height: number };
   transform: { position: { x: number; y: number; z: number }; rotation: { y: number } };
@@ -256,27 +257,31 @@ function AddedFurniture({ item }: { item: SceneObject }) {
   );
 }
 
+function ScaledFurniture({ item, base, children }: { item: SceneObject; base: SceneObject['dimensions']; children: ReactNode }) {
+  return (
+    <group
+      position={[item.transform.position.x, item.transform.position.y, item.transform.position.z]}
+      rotation={[0, THREE.MathUtils.degToRad(item.transform.rotation.y), 0]}
+      scale={[item.dimensions.width / base.width, item.dimensions.height / base.height, item.dimensions.depth / base.depth]}
+    >
+      {children}
+    </group>
+  );
+}
+
 function Furniture({ objects }: { objects: SceneObject[] }) {
-  const sofa = objects.find((item) => item.catalogItemId === 'sofa');
-  const sofaRotation = THREE.MathUtils.degToRad(sofa?.transform.rotation.y ?? 0);
   return (
     <group>
       {objects.map((item) => {
-        const position: [number, number, number] = [item.transform.position.x, item.transform.position.y, item.transform.position.z];
-        const rotation = THREE.MathUtils.degToRad(item.transform.rotation.y);
-        if (item.catalogItemId === 'sofa') return <Sofa key={item.id} position={position} rotation={rotation} />;
-        if (item.catalogItemId === 'desk') return <Desk key={item.id} position={position} rotation={rotation} />;
-        if (item.catalogItemId === 'table') return <DiningSet key={item.id} position={position} rotation={rotation} />;
-        if (item.catalogItemId === 'queen-bed') return <Bed key={item.id} position={position} rotation={rotation} />;
-        if (item.catalogItemId === 'dresser') return <Dresser key={item.id} position={position} rotation={rotation} />;
+        const name = item.name.toLowerCase();
+        if (item.category === 'sofa' || name.includes('sofa')) return <ScaledFurniture key={item.id} item={item} base={{ width: 2.18, depth: 0.91, height: 0.84 }}><Sofa position={[0, 0, 0]} /></ScaledFurniture>;
+        if (item.category === 'desk' || name.includes('desk')) return <ScaledFurniture key={item.id} item={item} base={{ width: 1.22, depth: 0.61, height: 0.76 }}><Desk position={[0, 0, 0]} /></ScaledFurniture>;
+        if (name.includes('coffee table')) return <ScaledFurniture key={item.id} item={item} base={{ width: 1.07, depth: 0.61, height: 0.43 }}><CoffeeTable position={[0, 0, 0]} /></ScaledFurniture>;
+        if (item.category === 'table' || name.includes('dining')) return <ScaledFurniture key={item.id} item={item} base={{ width: 1.22, depth: 0.91, height: 0.76 }}><DiningSet position={[0, 0, 0]} /></ScaledFurniture>;
+        if (item.category === 'bed' || name.includes('bed')) return <ScaledFurniture key={item.id} item={item} base={{ width: 1.52, depth: 2.03, height: 0.61 }}><Bed position={[0, 0, 0]} /></ScaledFurniture>;
+        if (item.category === 'storage' || name.includes('dresser') || name.includes('bookcase') || name.includes('nightstand')) return <ScaledFurniture key={item.id} item={item} base={{ width: 1.52, depth: 0.51, height: 0.84 }}><Dresser position={[0, 0, 0]} /></ScaledFurniture>;
         return <AddedFurniture key={item.id} item={item} />;
       })}
-      {sofa && <CoffeeTable position={[
-        sofa.transform.position.x + Math.sin(sofaRotation) * 1.1,
-        0,
-        sofa.transform.position.z + Math.cos(sofaRotation) * 1.1,
-      ]} />}
-      <Plant position={[0.55, 0, 0.65]} />
     </group>
   );
 }
