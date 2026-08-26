@@ -1,9 +1,36 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
+import ApartmentScene from './ApartmentScene';
 
 type View = 'plan' | 'three' | 'evaluation';
 type FurnitureKind = 'bed' | 'sofa' | 'desk' | 'table' | 'dresser';
+type LayoutKey = 'A' | 'B';
+type RoomId = 'living' | 'bedroom';
+
+type AddedObject = {
+  id: string;
+  name: string;
+  category: string;
+  roomId: RoomId;
+  dimensions: { width: number; depth: number; height: number };
+  transform: { position: { x: number; y: number; z: number }; rotation: { x: number; y: number; z: number } };
+};
+
+type AddObjectInput = {
+  name: string;
+  category: 'table' | 'storage' | 'other';
+  roomId: RoomId;
+  dimensions: AddedObject['dimensions'];
+};
+
+type ApiProject = {
+  revision: number;
+  scene: {
+    catalog: Array<{ id: string; name: string; category: string; dimensions: AddedObject['dimensions']; metadata?: { userAdded?: boolean } }>;
+    layouts: Array<{ id: string; elements: Array<{ id: string; catalogItemId: string; roomId: string; transform: AddedObject['transform'] }> }>;
+  };
+};
 
 const furniture: { kind: FurnitureKind; label: string; size: string }[] = [
   { kind: 'bed', label: 'Queen bed', size: '5′ × 6′8″' },
@@ -32,13 +59,38 @@ const timeLabel = (hour: number) => {
 export default function Home() {
   const [view, setView] = useState<View>('plan');
   const [compare, setCompare] = useState(false);
-  const [selected, setSelected] = useState<FurnitureKind>('desk');
+  const [selected, setSelected] = useState<string>('desk');
   const [hour, setHour] = useState(14.5);
   const [camera, setCamera] = useState(0);
+  const [cameraReset, setCameraReset] = useState(0);
+  const [showShadows, setShowShadows] = useState(true);
+  const [showLightPaths, setShowLightPaths] = useState(true);
+  const [showMeasurements, setShowMeasurements] = useState(false);
   const [optimized, setOptimized] = useState(false);
-  const [layout, setLayout] = useState<'A' | 'B'>('A');
-  const [message, setMessage] = useState('');
-  const [lastMessage, setLastMessage] = useState('');
+  const [layout, setLayout] = useState<LayoutKey>('A');
+  const [projectRevision, setProjectRevision] = useState<number | null>(null);
+  const [addedObjects, setAddedObjects] = useState<Record<LayoutKey, AddedObject[]>>({ A: [], B: [] });
+
+  const syncProject = (project: ApiProject) => {
+    const catalog = new Map(project.scene.catalog.map((item) => [item.id, item]));
+    const objectsFor = (key: LayoutKey): AddedObject[] => {
+      const sceneLayout = project.scene.layouts.find((item) => item.id === `layout-${key.toLowerCase()}`);
+      return (sceneLayout?.elements ?? []).flatMap((element) => {
+        const item = catalog.get(element.catalogItemId);
+        if (!item?.metadata?.userAdded || (element.roomId !== 'living' && element.roomId !== 'bedroom')) return [];
+        return [{ id: element.id, name: item.name, category: item.category, roomId: element.roomId, dimensions: item.dimensions, transform: element.transform }];
+      });
+    };
+    setProjectRevision(project.revision);
+    setAddedObjects({ A: objectsFor('A'), B: objectsFor('B') });
+  };
+
+  useEffect(() => {
+    fetch('/api/projects/demo')
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Could not load project')))
+      .then((project: ApiProject) => syncProject(project))
+      .catch(() => setProjectRevision(null));
+  }, []);
 
   const selectView = (next: View) => {
     setCompare(false);
@@ -50,33 +102,42 @@ export default function Home() {
     setLayout('A');
   };
 
-  const sendMessage = (event: FormEvent) => {
-    event.preventDefault();
-    if (!message.trim()) return;
-    setLastMessage(message.trim());
-    setMessage('');
-    setOptimized(true);
+  const addObject = async (input: AddObjectInput): Promise<string | null> => {
+    if (projectRevision === null) return 'The project is still loading. Try again in a moment.';
+    const response = await fetch('/api/projects/demo/objects', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...input, layoutId: `layout-${layout.toLowerCase()}`, expectedRevision: projectRevision }),
+    });
+    const result = await response.json() as { error?: string; current?: ApiProject; project?: ApiProject; objectId?: string };
+    if (!response.ok) {
+      if (result.current) syncProject(result.current);
+      return result.error ?? 'The object could not be added.';
+    }
+    if (result.project) syncProject(result.project);
+    if (result.objectId) setSelected(result.objectId);
+    return null;
   };
 
   return (
     <main className="app-shell">
       <Header />
       <ModeBar view={view} compare={compare} optimized={optimized} onView={selectView} onOptimize={optimize} />
-      <div className={`workspace-grid ${compare ? 'is-comparing' : ''}`}>
+      <div className={`workspace-grid ${compare ? 'is-comparing' : ''} ${view === 'plan' && !compare ? 'has-object-panel' : ''}`}>
         {compare ? (
           <ComparisonView onBack={() => setCompare(false)} />
         ) : (
           <>
-            {view === 'plan' && <FurniturePanel selected={selected} onSelect={setSelected} />}
-            {view === 'three' && <PreviewControls hour={hour} camera={camera} onHour={setHour} onCamera={setCamera} />}
+            {view === 'plan' && <FurniturePanel selected={selected} onSelect={setSelected} added={addedObjects[layout]} />}
+            {view === 'three' && <PreviewControls hour={hour} camera={camera} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} onHour={setHour} onCamera={setCamera} onReset={() => setCameraReset((value) => value + 1)} onShadows={setShowShadows} onLightPaths={setShowLightPaths} onMeasurements={setShowMeasurements} />}
             {view === 'evaluation' && <PriorityPanel />}
 
-            {view === 'plan' && <PlanView selected={selected} onSelect={setSelected} layout={layout} onLayout={setLayout} />}
-            {view === 'three' && <ThreeDView hour={hour} camera={camera} layout={layout} onLayout={setLayout} />}
+            {view === 'plan' && <PlanView selected={selected} onSelect={setSelected} layout={layout} onLayout={setLayout} added={addedObjects[layout]} />}
+            {view === 'three' && <ThreeDView hour={hour} camera={camera} cameraReset={cameraReset} layout={layout} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} addedObjects={addedObjects[layout]} onLayout={setLayout} />}
             {view === 'evaluation' && <EvaluationView />}
           </>
         )}
-        <AgentPanel view={view} comparing={compare} optimized={optimized} lastMessage={lastMessage} message={message} onMessage={setMessage} onSend={sendMessage} />
+        {view === 'plan' && !compare && <AddObjectPanel loading={projectRevision === null} onAdd={addObject} />}
       </div>
     </main>
   );
@@ -122,16 +183,21 @@ function ModeBar({ view, compare, optimized, onView, onOptimize }: { view: View;
   );
 }
 
-function FurniturePanel({ selected, onSelect }: { selected: FurnitureKind; onSelect: (item: FurnitureKind) => void }) {
+function FurniturePanel({ selected, onSelect, added }: { selected: string; onSelect: (item: string) => void; added: AddedObject[] }) {
   return (
     <aside className="library-panel">
-      <div className="panel-heading"><div><span className="eyebrow">YOUR SPACE</span><h2>Furniture</h2></div><button className="add-button" aria-label="Add furniture">+</button></div>
-      <div className="fit-summary"><div><strong>5 of 5</strong><span>items fit</span></div><div className="fit-ring"><span>92</span></div></div>
+      <div className="panel-heading"><div><span className="eyebrow">YOUR SPACE</span><h2>Furniture</h2></div><span className="object-count">{5 + added.length}</span></div>
+      <div className="fit-summary"><div><strong>{5 + added.length} objects</strong><span>in this layout</span></div><div className="fit-ring"><span>92</span></div></div>
       <label className="search-box"><span>⌕</span><input aria-label="Search furniture" placeholder="Search furniture" /></label>
       <div className="furniture-list">
         {furniture.map((item) => (
           <button key={item.kind} className={`furniture-row ${selected === item.kind ? 'selected' : ''}`} onClick={() => onSelect(item.kind)}>
             <span className={`furniture-thumb ${item.kind}`}><i /></span><span className="furniture-copy"><strong>{item.label}</strong><small>{item.size}</small></span><span className="drag-dots">⠿</span>
+          </button>
+        ))}
+        {added.map((item) => (
+          <button key={item.id} className={`furniture-row ${selected === item.id ? 'selected' : ''}`} onClick={() => onSelect(item.id)}>
+            <span className="furniture-thumb custom"><i /></span><span className="furniture-copy"><strong>{item.name}</strong><small>{formatDimensions(item.dimensions)}</small></span><span className="drag-dots">⠿</span>
           </button>
         ))}
       </div>
@@ -140,8 +206,8 @@ function FurniturePanel({ selected, onSelect }: { selected: FurnitureKind; onSel
   );
 }
 
-function PlanView({ selected, onSelect, layout, onLayout }: { selected: FurnitureKind; onSelect: (item: FurnitureKind) => void; layout: 'A' | 'B'; onLayout: (layout: 'A' | 'B') => void }) {
-  const active = (kind: FurnitureKind) => selected === kind ? 'object-selected' : '';
+function PlanView({ selected, onSelect, layout, onLayout, added }: { selected: string; onSelect: (item: string) => void; layout: LayoutKey; onLayout: (layout: LayoutKey) => void; added: AddedObject[] }) {
+  const active = (kind: string) => selected === kind ? 'object-selected' : '';
   return (
     <section className="plan-workspace" aria-label="2D floor plan editor">
       <div className="layout-switch"><span>LAYOUT</span><button className={layout === 'A' ? 'active' : ''} onClick={() => onLayout('A')}>A</button><button className={layout === 'B' ? 'active' : ''} onClick={() => onLayout('B')}>B</button></div>
@@ -156,12 +222,14 @@ function PlanView({ selected, onSelect, layout, onLayout }: { selected: Furnitur
             <button className={`plan-object sofa ${active('sofa')}`} onClick={() => onSelect('sofa')} aria-label="Sofa"><i /><i /><i /></button>
             <button className={`plan-object table ${active('table')}`} onClick={() => onSelect('table')} aria-label="Dining table"><i /><i /><i /><i /></button>
             <button className={`plan-object desk ${active('desk')}`} onClick={() => onSelect('desk')} aria-label="Desk"><i className="chair" /><span className="computer" /><b className="clearance">3′ CLEAR</b></button>
+            {added.filter((item) => item.roomId === 'living').map((item) => <AddedPlanObject key={item.id} item={item} selected={selected === item.id} onSelect={onSelect} />)}
             <div className="rug" /><div className="coffee-table" />
           </div>
           <div className="room bedroom">
             <div className="room-label"><strong>BEDROOM</strong><span>11′ 8″ × 12′ 4″</span></div><div className="window window-right"><span>WINDOW · SOUTH</span></div>
             <button className={`plan-object bed ${active('bed')}`} onClick={() => onSelect('bed')} aria-label="Queen bed"><span /><i /><i /></button>
             <button className={`plan-object dresser ${active('dresser')}`} onClick={() => onSelect('dresser')} aria-label="Dresser"><i /><i /><i /></button>
+            {added.filter((item) => item.roomId === 'bedroom').map((item) => <AddedPlanObject key={item.id} item={item} selected={selected === item.id} onSelect={onSelect} />)}
             <div className="closet"><span>CLOSET</span><i /><i /></div><div className="door-swing bedroom-door" />
           </div>
           <div className="room kitchen"><div className="room-label"><strong>KITCHEN</strong><span>8′ 6″ × 9′ 2″</span></div><div className="counter counter-top"><i /><i /><i /></div><div className="counter counter-side"><i /></div></div>
@@ -179,32 +247,101 @@ function PlanView({ selected, onSelect, layout, onLayout }: { selected: Furnitur
   );
 }
 
-function PreviewControls({ hour, camera, onHour, onCamera }: { hour: number; camera: number; onHour: (n: number) => void; onCamera: (n: number) => void }) {
+const objectPresets: Array<AddObjectInput & { shortLabel: string }> = [
+  { shortLabel: 'Chair', name: 'Accent chair', category: 'other', roomId: 'living', dimensions: { width: 0.76, depth: 0.81, height: 0.86 } },
+  { shortLabel: 'Nightstand', name: 'Nightstand', category: 'storage', roomId: 'bedroom', dimensions: { width: 0.56, depth: 0.46, height: 0.61 } },
+  { shortLabel: 'Bookcase', name: 'Bookcase', category: 'storage', roomId: 'living', dimensions: { width: 0.91, depth: 0.35, height: 1.83 } },
+  { shortLabel: 'Coffee table', name: 'Coffee table', category: 'table', roomId: 'living', dimensions: { width: 1.07, depth: 0.61, height: 0.43 } },
+];
+
+function AddObjectPanel({ loading, onAdd }: { loading: boolean; onAdd: (input: AddObjectInput) => Promise<string | null> }) {
+  const [presetIndex, setPresetIndex] = useState(0);
+  const [name, setName] = useState(objectPresets[0].name);
+  const [roomId, setRoomId] = useState<RoomId>('living');
+  const [dimensions, setDimensions] = useState(objectPresets[0].dimensions);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const choosePreset = (index: number) => {
+    const preset = objectPresets[index];
+    setPresetIndex(index);
+    setName(preset.name);
+    setRoomId(preset.roomId);
+    setDimensions(preset.dimensions);
+    setError('');
+    setSuccess('');
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    const message = await onAdd({ name: name.trim(), category: objectPresets[presetIndex].category, roomId, dimensions });
+    setSaving(false);
+    if (message) setError(message);
+    else setSuccess(`${name.trim()} placed in ${roomId === 'living' ? 'Living + Dining' : 'Bedroom'}.`);
+  };
+
+  const setDimension = (key: keyof AddedObject['dimensions'], value: string) => {
+    setDimensions((current) => ({ ...current, [key]: Math.max(0.1, Number(value) || 0.1) }));
+  };
+
+  return (
+    <aside className="add-object-panel">
+      <div className="add-object-heading"><span className="eyebrow">OBJECT LIBRARY</span><h2>Add object</h2><p>Choose an object, confirm its size, then place it into a room.</p></div>
+      <form onSubmit={submit}>
+        <fieldset><legend>OBJECT TYPE</legend><div className="preset-grid">{objectPresets.map((preset, index) => <button type="button" key={preset.shortLabel} className={presetIndex === index ? 'active' : ''} onClick={() => choosePreset(index)}><i className={`preset-icon preset-${index}`} />{preset.shortLabel}</button>)}</div></fieldset>
+        <label className="field-label">NAME<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label className="field-label">PLACE IN<select value={roomId} onChange={(event) => setRoomId(event.target.value as RoomId)}><option value="living">Living + Dining</option><option value="bedroom">Bedroom</option></select></label>
+        <fieldset><legend>DIMENSIONS · METERS</legend><div className="dimension-grid"><label>W<input type="number" min="0.1" max="5" step="0.01" value={dimensions.width} onChange={(event) => setDimension('width', event.target.value)} /></label><label>D<input type="number" min="0.1" max="5" step="0.01" value={dimensions.depth} onChange={(event) => setDimension('depth', event.target.value)} /></label><label>H<input type="number" min="0.1" max="5" step="0.01" value={dimensions.height} onChange={(event) => setDimension('height', event.target.value)} /></label></div></fieldset>
+        <button className="place-object" disabled={loading || saving || !name.trim()}>{saving ? 'Placing…' : loading ? 'Loading project…' : '＋ Place in room'}</button>
+        {error && <p className="object-form-message error" role="alert">{error}</p>}
+        {success && <p className="object-form-message success" role="status">✓ {success}</p>}
+      </form>
+      <div className="placement-note"><span>01</span><p>New objects are centered in the selected room and saved to the active layout.</p></div>
+    </aside>
+  );
+}
+
+function AddedPlanObject({ item, selected, onSelect }: { item: AddedObject; selected: boolean; onSelect: (id: string) => void }) {
+  const room = item.roomId === 'living'
+    ? { x: 0, z: 0, width: 4.32, depth: 5.64 }
+    : { x: 4.32, z: 0, width: 3.55, depth: 3.76 };
+  const style = {
+    left: `${((item.transform.position.x - room.x) / room.width) * 100}%`,
+    top: `${((item.transform.position.z - room.z) / room.depth) * 100}%`,
+    width: `${Math.max(8, (item.dimensions.width / room.width) * 100)}%`,
+    height: `${Math.max(8, (item.dimensions.depth / room.depth) * 100)}%`,
+    transform: `translate(-50%, -50%) rotate(${item.transform.rotation.y}deg)`,
+  };
+  return <button className={`plan-object added-object ${selected ? 'object-selected' : ''}`} style={style} onClick={() => onSelect(item.id)} aria-label={item.name}><span>{item.name}</span></button>;
+}
+
+function formatDimensions(dimensions: AddedObject['dimensions']) {
+  return `${dimensions.width.toFixed(2)} × ${dimensions.depth.toFixed(2)} m`;
+}
+
+function PreviewControls({ hour, camera, shadows, lightPaths, measurements, onHour, onCamera, onReset, onShadows, onLightPaths, onMeasurements }: { hour: number; camera: number; shadows: boolean; lightPaths: boolean; measurements: boolean; onHour: (n: number) => void; onCamera: (n: number) => void; onReset: () => void; onShadows: (value: boolean) => void; onLightPaths: (value: boolean) => void; onMeasurements: (value: boolean) => void }) {
   return (
     <aside className="library-panel preview-controls">
       <div className="panel-heading"><div><span className="eyebrow">3D MODEL</span><h2>View controls</h2></div><span className="live-badge"><i /> LIVE</span></div>
-      <div className="control-section"><label>CAMERA ANGLE <span>{camera > 0 ? '+' : ''}{camera}°</span></label><div className="camera-pad"><button onClick={() => onCamera(Math.max(-2, camera - 1))}>↶</button><div className={`camera-orbit orbit-${camera}`}><i /><span /></div><button onClick={() => onCamera(Math.min(2, camera + 1))}>↷</button></div><button className="wide-control" onClick={() => onCamera(0)}>Reset perspective</button></div>
+      <div className="control-section"><label>CAMERA ANGLE <span>{camera > 0 ? '+' : ''}{camera * 12}°</span></label><div className="camera-pad"><button onClick={() => onCamera(Math.max(-2, camera - 1))} aria-label="Rotate camera left">↶</button><div className={`camera-orbit orbit-${camera}`}><i /><span /></div><button onClick={() => onCamera(Math.min(2, camera + 1))} aria-label="Rotate camera right">↷</button></div><button className="wide-control" onClick={() => { onCamera(0); onReset(); }}>Reset perspective</button></div>
       <div className="control-section daylight-control"><label>SUNLIGHT <span>{timeLabel(hour)}</span></label><div className="sun-readout"><span className="sun-icon">☀</span><div><strong>{hour < 12 ? 'Morning light' : hour < 16 ? 'Strong afternoon light' : 'Warm evening light'}</strong><small>East + south windows</small></div></div><input aria-label="Sunlight time" type="range" min="7" max="20" step="0.25" value={hour} onChange={(e) => onHour(Number(e.target.value))} /><div className="range-labels"><span>7 AM</span><span>NOON</span><span>8 PM</span></div></div>
-      <div className="control-section"><label>DISPLAY</label><label className="toggle-row">Furniture shadows <input type="checkbox" defaultChecked /><i /></label><label className="toggle-row">Window light paths <input type="checkbox" defaultChecked /><i /></label><label className="toggle-row">Measurements <input type="checkbox" /><i /></label></div>
+      <div className="control-section"><label>DISPLAY</label><label className="toggle-row">Furniture shadows <input type="checkbox" checked={shadows} onChange={(event) => onShadows(event.target.checked)} /><i /></label><label className="toggle-row">Window light paths <input type="checkbox" checked={lightPaths} onChange={(event) => onLightPaths(event.target.checked)} /><i /></label><label className="toggle-row">Measurements <input type="checkbox" checked={measurements} onChange={(event) => onMeasurements(event.target.checked)} /><i /></label></div>
       <div className="sun-fact"><span>✦</span><div><strong>5.7 hrs useful daylight</strong><p>at the desk on a typical May day</p></div></div>
     </aside>
   );
 }
 
-function ThreeDView({ hour, camera, layout, onLayout }: { hour: number; camera: number; layout: 'A' | 'B'; onLayout: (l: 'A' | 'B') => void }) {
-  const rayShift = `${Math.round((hour - 7) * 8)}px`;
+function ThreeDView({ hour, camera, cameraReset, layout, shadows, lightPaths, measurements, addedObjects, onLayout }: { hour: number; camera: number; cameraReset: number; layout: 'A' | 'B'; shadows: boolean; lightPaths: boolean; measurements: boolean; addedObjects: AddedObject[]; onLayout: (l: 'A' | 'B') => void }) {
   return (
     <section className="preview-workspace" aria-label="3D apartment preview">
       <div className="preview-topline"><div><span className="eyebrow">LIVING ROOM · EAST VIEW</span><strong>{timeLabel(hour)}</strong></div><div className="layout-switch floating"><span>LAYOUT</span><button className={layout === 'A' ? 'active' : ''} onClick={() => onLayout('A')}>A</button><button className={layout === 'B' ? 'active' : ''} onClick={() => onLayout('B')}>B</button></div></div>
-      <div className={`interior-scene camera-${camera} layout3d-${layout.toLowerCase()}`} style={{ '--ray-shift': rayShift } as React.CSSProperties}>
-        <div className="ceiling-plane" /><div className="wall wall-left" /><div className="wall wall-back"><div className="scene-window first"><i /><i /><span /></div><div className="scene-window second"><i /><i /><span /></div><div className="wall-art"><i /><span /></div></div><div className="wall wall-right"><div className="scene-door"><i /></div></div><div className="floor-plane" />
-        <div className="sun-ray ray-one" /><div className="sun-ray ray-two" />
-        <div className="scene-rug" /><div className="scene-sofa"><span /><i className="cushion-one" /><i className="cushion-two" /><b /></div><div className="scene-coffee"><span /></div>
-        <div className="scene-desk"><div className="desk-top" /><div className="desk-leg one" /><div className="desk-leg two" /><div className="scene-screen" /><div className="desk-chair" /></div>
-        <div className="scene-table"><div className="table-top" /><i /><i /><span /><b /></div><div className="scene-plant"><i /><span /></div>
-        <div className="light-meter"><span>DESK DAYLIGHT</span><strong>640 lux</strong><i /></div>
-      </div>
-      <div className="sun-timeline"><button>‹</button><div className="timeline-track"><div className="daylight-band"><i style={{ left: `${((hour - 7) / 13) * 100}%` }} /></div><div className="time-ticks"><span>7 AM</span><span>10 AM</span><span>1 PM</span><span>4 PM</span><span>8 PM</span></div></div><button>›</button></div>
+      <ApartmentScene hour={hour} cameraStep={camera} cameraReset={cameraReset} layout={layout} shadows={shadows} lightPaths={lightPaths} measurements={measurements} addedObjects={addedObjects} />
+      <div className="light-meter"><span>DESK DAYLIGHT</span><strong>{Math.round(180 + Math.sin(((hour - 7) / 13) * Math.PI) * 520)} lux</strong><i /></div>
+      <div className="sun-timeline"><div /><div className="timeline-track"><div className="daylight-band"><i style={{ left: `${((hour - 7) / 13) * 100}%` }} /></div><div className="time-ticks"><span>7 AM</span><span>10 AM</span><span>1 PM</span><span>4 PM</span><span>8 PM</span></div></div><div /></div>
     </section>
   );
 }
@@ -275,32 +412,4 @@ function ComparisonView({ onBack }: { onBack: () => void }) {
 
 function MiniPlan({ variant }: { variant: 'a' | 'b' }) {
   return <div className={`mini-plan variant-${variant}`}><div className="mp-room one"><i /><b /></div><div className="mp-room two"><span /></div><div className="mp-room three"><i /></div><div className="mp-room four" /><span className="mp-window one" /><span className="mp-window two" /></div>;
-}
-
-function AgentPanel({ view, comparing, optimized, lastMessage, message, onMessage, onSend }: { view: View; comparing: boolean; optimized: boolean; lastMessage: string; message: string; onMessage: (s: string) => void; onSend: (e: FormEvent) => void }) {
-  const context = useMemo(() => {
-    if (comparing) return { title: 'Decision advisor', goal: 'Compare both apartments using my priorities. Tell me which one supports remote work without giving up natural light.', progress: 'Comparison complete', step: '10 of 10', insight: 'Apartment A is the better lifestyle fit. Apartment B wins on light, but not by enough to offset its weaker desk placement.', confidence: '91% confidence' };
-    if (view === 'three') return { title: 'Sunlight analyst', goal: 'Show me how daylight changes through the day, especially around my desk and living room.', progress: 'Simulating daylight', step: '9 of 10', insight: 'The desk stays above 450 lux from 9:10 AM to 3:40 PM with low glare risk.', confidence: '88% confidence' };
-    if (view === 'evaluation') return { title: 'Decision advisor', goal: 'Judge this apartment for my actual lifestyle, not just how it looks in the listing.', progress: 'Evaluation complete', step: '10 of 10', insight: 'This is a strong fit. Storage is the only meaningful compromise and can be solved without changing the layout.', confidence: '94% confidence' };
-    return { title: 'Layout advisor', goal: 'I work from home and care a lot about natural light. Keep the desk near good daylight and make sure the room still feels open.', progress: optimized ? 'Optimization complete' : 'Optimizing your layout', step: optimized ? '10 of 10' : '8 of 10', insight: optimized ? 'Layout A is the best configuration: every item fits with a 3-foot minimum path.' : 'The desk receives strong indirect light until 3:40 PM without blocking the main path.', confidence: optimized ? '94% confidence' : '78% confidence' };
-  }, [comparing, view, optimized]);
-  const complete = optimized || comparing || view === 'evaluation';
-  return (
-    <aside className="agent-panel">
-      <div className="agent-header"><div className="agent-avatar">✦</div><div><span className="eyebrow">SPATIAL AGENT</span><h2>{context.title}</h2></div><button className="icon-button" aria-label="Panel options">•••</button></div>
-      <div className="agent-goal"><span className="quote-mark">“</span><p>{context.goal}</p><button>Edit priorities</button></div>
-      {lastMessage && <div className="user-followup"><span>YOU</span>{lastMessage}</div>}
-      <div className="agent-progress"><div className="progress-top"><strong>{context.progress}</strong><span>{context.step}</span></div><div className="progress-track"><i style={{ width: complete ? '100%' : view === 'three' ? '90%' : '80%' }} /></div></div>
-      <div className="activity-log">
-        <div className="activity done"><i>✓</i><div><strong>Inspected room geometry</strong><span>4 rooms · 7 openings</span></div><time>0:02</time></div>
-        <div className="activity done"><i>✓</i><div><strong>Placed 5 furniture items</strong><span>Using exact dimensions</span></div><time>0:04</time></div>
-        <div className="activity done"><i>✓</i><div><strong>Tested 12 arrangements</strong><span>3 passed all constraints</span></div><time>0:18</time></div>
-        <div className={`activity ${view === 'three' && !complete ? 'active' : 'done'}`}><i>{view === 'three' && !complete ? '✦' : '✓'}</i><div><strong>Ran sunlight simulation</strong><span>Desk light checked 7am–8pm</span></div><time>{view === 'three' && !complete ? 'Now' : '0:23'}</time></div>
-        <div className={`activity ${!complete && view === 'plan' ? 'active' : 'done'}`}><i>{!complete && view === 'plan' ? '✦' : '✓'}</i><div><strong>{comparing ? 'Compared both apartments' : 'Compared top layouts'}</strong><span>{comparing ? '5 lifestyle factors weighted' : 'Layout A scored highest'}</span></div></div>
-        <div className={`activity ${complete ? 'done' : 'queued'}`}><i>{complete ? '✓' : '10'}</i><div><strong>Recommend best fit</strong></div></div>
-      </div>
-      <div className="agent-insight"><div className="insight-top"><span>✦</span><strong>{complete ? 'Recommendation' : 'Live insight'}</strong><small>{context.confidence}</small></div><p>{context.insight}</p></div>
-      <form className="agent-compose" onSubmit={onSend}><button type="button" aria-label="Attach">＋</button><input aria-label="Message agent" placeholder="Ask about this apartment…" value={message} onChange={(e) => onMessage(e.target.value)} /><button className="send" aria-label="Send">↑</button></form>
-    </aside>
-  );
 }
