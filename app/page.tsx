@@ -106,7 +106,7 @@ function ModeBar({ view, compare, optimized, onView, onOptimize }: { view: View;
       <nav className="view-tabs" aria-label="Apartment views">
         <button className={`view-tab ${view === 'plan' && !compare ? 'active' : ''}`} onClick={() => onView('plan')}><span className="plan-glyph" />2D plan</button>
         <button className={`view-tab ${view === 'three' && !compare ? 'active' : ''}`} onClick={() => onView('three')}><span className="cube-glyph">◇</span>3D preview</button>
-        <button className={`view-tab ${view === 'evaluation' && !compare ? 'active' : ''}`} onClick={() => onView('evaluation')}><span className="score-glyph">↗</span>Evaluation <b>84</b></button>
+        {/* Evaluation is temporarily hidden while the hackathon demo focuses on 2D, 3D, and sunlight. */}
       </nav>
       {compare ? (
         <div className="comparison-mode-title"><span className="split-icon" /> SIDE-BY-SIDE DECISION</div>
