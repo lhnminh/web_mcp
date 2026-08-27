@@ -3,7 +3,7 @@
 import { ContactShadows, OrbitControls, RoundedBox } from '@react-three/drei';
 import { Canvas, useThree } from '@react-three/fiber';
 import { type ReactNode, useEffect, useMemo, useRef } from 'react';
-import type { ArchitecturalElement, RoomElement, WallElement } from '@/lib/domain/scene';
+import type { ArchitecturalElement, OpeningElement, RoomElement, WallElement } from '@/lib/domain/scene';
 import { getArchitectureBounds, wallLength } from '@/lib/domain/architecture';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
@@ -105,20 +105,44 @@ function RoomFloor({ room, index }: { room: RoomElement; index: number }) {
   return <mesh geometry={geometry} position={[0, room.floorElevation + 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow><meshStandardMaterial color={colors[index % colors.length]} roughness={0.84} side={THREE.DoubleSide} /></mesh>;
 }
 
-function SceneWall({ wall }: { wall: WallElement }) {
+function SceneWall({ wall, openings }: { wall: WallElement; openings: OpeningElement[] }) {
   const length = wallLength(wall);
   const angle = Math.atan2(wall.end.y - wall.start.y, wall.end.x - wall.start.x);
-  return <Wall position={[(wall.start.x + wall.end.x) / 2, wall.height / 2, (wall.start.y + wall.end.y) / 2]} size={[length, wall.height, wall.thickness]} rotation={[0, -angle, 0]} />;
+  const pointAt = (offset: number) => ({
+    x: wall.start.x + ((wall.end.x - wall.start.x) * offset) / length,
+    y: wall.start.y + ((wall.end.y - wall.start.y) * offset) / length,
+  });
+  const part = (key: string, offset: number, width: number, bottom: number, height: number) => {
+    if (width < 0.01 || height < 0.01) return null;
+    const center = pointAt(offset + width / 2);
+    return <Wall key={key} position={[center.x, bottom + height / 2, center.y]} size={[width, height, wall.thickness]} rotation={[0, -angle, 0]} />;
+  };
+  const sorted = openings
+    .filter((opening) => opening.offset >= 0 && opening.offset + opening.width <= length + 0.001)
+    .sort((a, b) => a.offset - b.offset);
+  if (sorted.length === 0) return part('full', 0, length, 0, wall.height);
+  const pieces: ReactNode[] = [];
+  let cursor = 0;
+  sorted.forEach((opening) => {
+    pieces.push(part(`${opening.id}-before`, cursor, opening.offset - cursor, 0, wall.height));
+    pieces.push(part(`${opening.id}-below`, opening.offset, opening.width, 0, opening.sillHeight));
+    const openingTop = opening.sillHeight + opening.height;
+    pieces.push(part(`${opening.id}-above`, opening.offset, opening.width, openingTop, wall.height - openingTop));
+    cursor = opening.offset + opening.width;
+  });
+  pieces.push(part('after', cursor, length - cursor, 0, wall.height));
+  return <group>{pieces}</group>;
 }
 
 function Architecture({ measurements, architecture }: { measurements: boolean; architecture: ArchitecturalElement[] }) {
   const rooms = architecture.filter((element): element is RoomElement => element.kind === 'room');
   const walls = architecture.filter((element): element is WallElement => element.kind === 'wall');
+  const openings = architecture.filter((element): element is OpeningElement => element.kind === 'opening');
   const bounds = getArchitectureBounds(architecture);
   return (
     <group>
       {rooms.map((room, index) => <RoomFloor key={room.id} room={room} index={index} />)}
-      {walls.map((wall) => <SceneWall key={wall.id} wall={wall} />)}
+      {walls.map((wall) => <SceneWall key={wall.id} wall={wall} openings={openings.filter((opening) => opening.wallId === wall.id)} />)}
 
       {measurements && (
         <gridHelper args={[Math.max(bounds.width, bounds.depth) * 1.4, Math.max(12, Math.ceil(Math.max(bounds.width, bounds.depth) * 2)), '#5f7d8f', '#adc0c8']} position={[(bounds.minX + bounds.maxX) / 2, 0.022, (bounds.minY + bounds.maxY) / 2]} />

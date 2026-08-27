@@ -1,8 +1,8 @@
 'use client';
 
 import { FormEvent, KeyboardEvent, PointerEvent, ReactNode, useEffect, useRef, useState } from 'react';
-import type { ArchitecturalElement, Point2, RoomElement, SceneDocument, WallElement } from '@/lib/domain/scene';
-import { getArchitectureBounds, isExteriorWall, isRectangularRoom, polygonArea, polygonCentroid, rebuildSceneRooms, resizeSceneFootprint, roomForPoint, wallLength } from '@/lib/domain/architecture';
+import type { ArchitecturalElement, OpeningElement, Point2, RoomElement, SceneDocument, WallElement } from '@/lib/domain/scene';
+import { getArchitectureBounds, isExteriorWall, isRectangularRoom, pointInRoom, polygonArea, polygonCentroid, rebuildSceneRooms, resizeSceneFootprint, roomForPoint, wallLength } from '@/lib/domain/architecture';
 import ApartmentScene from './ApartmentScene';
 
 type View = 'plan' | 'three' | 'evaluation';
@@ -56,6 +56,51 @@ const timeLabel = (hour: number) => {
   return `${display}:${minute.toString().padStart(2, '0')} ${suffix}`;
 };
 
+const samePoint = (a: Point2, b: Point2, tolerance = 0.015) => Math.hypot(a.x - b.x, a.y - b.y) <= tolerance;
+const geometryPointKey = (point: Point2) => `${Math.round(point.x * 100)},${Math.round(point.y * 100)}`;
+const orientation = (a: Point2, b: Point2, c: Point2) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+const pointOnSegment = (point: Point2, start: Point2, end: Point2) => Math.abs(orientation(start, end, point)) < 0.0001
+  && point.x >= Math.min(start.x, end.x) - 0.0001 && point.x <= Math.max(start.x, end.x) + 0.0001
+  && point.y >= Math.min(start.y, end.y) - 0.0001 && point.y <= Math.max(start.y, end.y) + 0.0001;
+
+const segmentsCross = (a: WallElement, b: WallElement) => {
+  if ([a.start, a.end].some((pointA) => [b.start, b.end].some((pointB) => samePoint(pointA, pointB)))) return false;
+  const abStart = orientation(a.start, a.end, b.start);
+  const abEnd = orientation(a.start, a.end, b.end);
+  const baStart = orientation(b.start, b.end, a.start);
+  const baEnd = orientation(b.start, b.end, a.end);
+  if (abStart * abEnd < 0 && baStart * baEnd < 0) return true;
+  return (Math.abs(abStart) < 0.0001 && pointOnSegment(b.start, a.start, a.end))
+    || (Math.abs(abEnd) < 0.0001 && pointOnSegment(b.end, a.start, a.end))
+    || (Math.abs(baStart) < 0.0001 && pointOnSegment(a.start, b.start, b.end))
+    || (Math.abs(baEnd) < 0.0001 && pointOnSegment(a.end, b.start, b.end));
+};
+
+const exteriorLoopError = (walls: WallElement[]) => {
+  if (walls.length < 3) return 'The exterior perimeter needs at least three walls.';
+  const degrees = new Map<string, number>();
+  walls.forEach((wall) => [wall.start, wall.end].forEach((point) => degrees.set(geometryPointKey(point), (degrees.get(geometryPointKey(point)) ?? 0) + 1)));
+  if ([...degrees.values()].some((degree) => degree !== 2)) return 'Exterior corners must remain connected.';
+  for (let first = 0; first < walls.length; first += 1) {
+    for (let second = first + 1; second < walls.length; second += 1) {
+      if (segmentsCross(walls[first], walls[second])) return 'Exterior walls cannot cross each other.';
+    }
+  }
+  const connected = new Set<string>([walls[0].id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    walls.forEach((wall) => {
+      if (connected.has(wall.id)) return;
+      if (walls.some((candidate) => connected.has(candidate.id) && [wall.start, wall.end].some((point) => [candidate.start, candidate.end].some((candidatePoint) => samePoint(point, candidatePoint))))) {
+        connected.add(wall.id);
+        changed = true;
+      }
+    });
+  }
+  return connected.size === walls.length ? null : 'The exterior perimeter must remain one closed shape.';
+};
+
 export default function Home() {
   const [view, setView] = useState<View>('plan');
   const [editMode, setEditMode] = useState<EditMode>('furnish');
@@ -74,6 +119,7 @@ export default function Home() {
   const [collisionMessage, setCollisionMessage] = useState('');
   const [architectureMessage, setArchitectureMessage] = useState('');
   const [selectedWallId, setSelectedWallId] = useState('');
+  const [selectedOpeningId, setSelectedOpeningId] = useState('');
   const [selectedRoomId, setSelectedRoomId] = useState('');
   const [drawingWall, setDrawingWall] = useState(false);
   const [zoom, setZoom] = useState(80);
@@ -202,35 +248,182 @@ export default function Home() {
     if (!wall) return false;
     const nextWall = { ...wall, ...patch };
     const bounds = getArchitectureBounds(current.scene.architecture);
+    const currentWalls = current.scene.architecture.filter((element): element is WallElement => element.kind === 'wall');
+    const exteriorIds = new Set(currentWalls.filter((candidate) => isExteriorWall(candidate, bounds, current.scene.architecture)).map((candidate) => candidate.id));
+    const exterior = exteriorIds.has(wall.id);
     const geometryChanged = Math.hypot(nextWall.start.x - wall.start.x, nextWall.start.y - wall.start.y) > 0.001
       || Math.hypot(nextWall.end.x - wall.end.x, nextWall.end.y - wall.end.y) > 0.001;
     const inside = (point: Point2) => point.x >= bounds.minX && point.x <= bounds.maxX && point.y >= bounds.minY && point.y <= bounds.maxY;
-    if (geometryChanged && isExteriorWall(wall, bounds)) {
-      setArchitectureMessage('Exterior walls are changed with the apartment size controls.');
-      return false;
-    }
-    if (!inside(nextWall.start) || !inside(nextWall.end) || wallLength(nextWall) < 0.1) {
+    if (!exterior && geometryChanged && (!inside(nextWall.start) || !inside(nextWall.end))) {
       setArchitectureMessage('Walls must be at least 0.10 m long and remain inside the apartment.');
       return false;
     }
-    const duplicate = current.scene.architecture.some((element) => element.kind === 'wall' && element.id !== wallId && (
-      (Math.hypot(element.start.x - nextWall.start.x, element.start.y - nextWall.start.y) < 0.02 && Math.hypot(element.end.x - nextWall.end.x, element.end.y - nextWall.end.y) < 0.02)
-      || (Math.hypot(element.start.x - nextWall.end.x, element.start.y - nextWall.end.y) < 0.02 && Math.hypot(element.end.x - nextWall.start.x, element.end.y - nextWall.start.y) < 0.02)
-    ));
+    const movedCorners = exterior && geometryChanged ? [
+      ...(samePoint(wall.start, nextWall.start) ? [] : [{ before: wall.start, after: nextWall.start }]),
+      ...(samePoint(wall.end, nextWall.end) ? [] : [{ before: wall.end, after: nextWall.end }]),
+    ] : [];
+    const nextWalls = currentWalls.map((candidate) => {
+      if (candidate.id === wall.id) return nextWall;
+      if (movedCorners.length === 0) return candidate;
+      const movedStart = movedCorners.find((corner) => samePoint(candidate.start, corner.before));
+      const movedEnd = movedCorners.find((corner) => samePoint(candidate.end, corner.before));
+      return { ...candidate, start: movedStart?.after ?? candidate.start, end: movedEnd?.after ?? candidate.end };
+    });
+    if (nextWalls.some((candidate) => wallLength(candidate) < 0.1)) {
+      setArchitectureMessage('Walls must be at least 0.10 m long.');
+      return false;
+    }
+    const duplicate = nextWalls.some((candidate, index) => nextWalls.slice(index + 1).some((other) => (
+      (samePoint(candidate.start, other.start) && samePoint(candidate.end, other.end))
+      || (samePoint(candidate.start, other.end) && samePoint(candidate.end, other.start))
+    )));
     if (duplicate) {
       setArchitectureMessage('A wall already exists at that location.');
       return false;
     }
-    const longestOpeningEdge = current.scene.architecture
-      .flatMap((element) => element.kind === 'opening' && element.wallId === wallId ? [element.offset + element.width] : [])
-      .reduce((maximum, openingEdge) => Math.max(maximum, openingEdge), 0);
-    if (longestOpeningEdge > wallLength(nextWall)) {
+    const nextWallMap = new Map(nextWalls.map((candidate) => [candidate.id, candidate]));
+    const openingOutsideWall = current.scene.architecture.some((element) => element.kind === 'opening' && element.offset + element.width > wallLength(nextWallMap.get(element.wallId) ?? wall) + 0.001);
+    if (openingOutsideWall) {
       setArchitectureMessage('This wall cannot be shorter than its doors or windows.');
       return false;
     }
-    const architecture = current.scene.architecture.map((element) => element.kind === 'wall' && element.id === wallId ? nextWall : element);
-    const error = await saveScene(rebuildSceneRooms({ ...current.scene, architecture }), 'Wall updated.');
+    if (exterior && geometryChanged) {
+      const perimeterError = exteriorLoopError(nextWalls.filter((candidate) => exteriorIds.has(candidate.id)));
+      if (perimeterError) {
+        setArchitectureMessage(perimeterError);
+        return false;
+      }
+    }
+    const architecture = current.scene.architecture.map((element) => element.kind === 'wall' ? nextWallMap.get(element.id) ?? element : element);
+    const rebuilt = rebuildSceneRooms({ ...current.scene, architecture });
+    const rebuiltRooms = rebuilt.architecture.filter((element): element is RoomElement => element.kind === 'room');
+    const outsideFurniture = rebuilt.layouts.flatMap((sceneLayout) => sceneLayout.elements).filter((element) => !rebuiltRooms.some((room) => pointInRoom({ x: element.transform.position.x, y: element.transform.position.z }, room))).length;
+    const successMessage = exterior && geometryChanged ? `Exterior shape updated${outsideFurniture ? ` · ${outsideFurniture} furniture item${outsideFurniture === 1 ? '' : 's'} outside the footprint` : ''}.` : 'Wall updated.';
+    const error = await saveScene(rebuilt, successMessage);
     return !error;
+  };
+
+  const addExteriorCorner = async (wallId: string) => {
+    const current = projectRef.current;
+    if (!current) return;
+    const bounds = getArchitectureBounds(current.scene.architecture);
+    const wall = current.scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === wallId);
+    if (!wall || !isExteriorWall(wall, bounds, current.scene.architecture)) return;
+    const splitOffset = wallLength(wall) / 2;
+    if (splitOffset < 0.1) {
+      setArchitectureMessage('This exterior edge is too short to add a corner.');
+      return;
+    }
+    const crossingOpening = current.scene.architecture.some((element) => element.kind === 'opening' && element.wallId === wallId && element.offset < splitOffset && element.offset + element.width > splitOffset);
+    if (crossingOpening) {
+      setArchitectureMessage('Move the opening away from the middle of this wall before adding a corner.');
+      return;
+    }
+    const ratio = splitOffset / wallLength(wall);
+    const corner = { x: wall.start.x + (wall.end.x - wall.start.x) * ratio, y: wall.start.y + (wall.end.y - wall.start.y) * ratio };
+    const addedWall: WallElement = { ...wall, id: `wall-${crypto.randomUUID()}`, start: corner };
+    const architecture = current.scene.architecture.flatMap((element): ArchitecturalElement[] => {
+      if (element.kind === 'wall' && element.id === wallId) return [{ ...element, end: corner }, addedWall];
+      if (element.kind === 'opening' && element.wallId === wallId && element.offset >= splitOffset) return [{ ...element, wallId: addedWall.id, offset: element.offset - splitOffset }];
+      return [element];
+    });
+    const error = await saveScene(rebuildSceneRooms({ ...current.scene, architecture }), 'Exterior corner added · drag the new corner to reshape the footprint.');
+    if (!error) setSelectedWallId(wallId);
+  };
+
+  const removeExteriorCorner = async (wallId: string, endpoint: WallEndpoint) => {
+    const current = projectRef.current;
+    if (!current) return;
+    const bounds = getArchitectureBounds(current.scene.architecture);
+    const walls = current.scene.architecture.filter((element): element is WallElement => element.kind === 'wall');
+    const exteriorWalls = walls.filter((wall) => isExteriorWall(wall, bounds, current.scene.architecture));
+    const wall = exteriorWalls.find((candidate) => candidate.id === wallId);
+    if (!wall || exteriorWalls.length <= 3) {
+      setArchitectureMessage('The exterior perimeter needs at least three corners.');
+      return;
+    }
+    const corner = endpoint === 'start' ? wall.start : wall.end;
+    const neighbor = exteriorWalls.find((candidate) => candidate.id !== wall.id && (samePoint(candidate.start, corner) || samePoint(candidate.end, corner)));
+    if (!neighbor) {
+      setArchitectureMessage('This exterior corner is not connected correctly.');
+      return;
+    }
+    if (current.scene.architecture.some((element) => element.kind === 'opening' && (element.wallId === wall.id || element.wallId === neighbor.id))) {
+      setArchitectureMessage('Remove or relocate openings on these edges before removing the corner.');
+      return;
+    }
+    const neighborFarPoint = samePoint(neighbor.start, corner) ? neighbor.end : neighbor.start;
+    const wallFarPoint = endpoint === 'start' ? wall.end : wall.start;
+    const mergedWall = { ...wall, start: endpoint === 'start' ? neighborFarPoint : wallFarPoint, end: endpoint === 'start' ? wallFarPoint : neighborFarPoint };
+    const nextExterior = exteriorWalls.filter((candidate) => candidate.id !== neighbor.id && candidate.id !== wall.id).concat(mergedWall);
+    const perimeterError = exteriorLoopError(nextExterior);
+    if (perimeterError) {
+      setArchitectureMessage(perimeterError);
+      return;
+    }
+    const architecture = current.scene.architecture.filter((element) => element.id !== neighbor.id).map((element) => element.id === wall.id ? mergedWall : element);
+    await saveScene(rebuildSceneRooms({ ...current.scene, architecture }), 'Exterior corner removed.');
+  };
+
+  const addDoor = async (wallId: string) => {
+    const current = projectRef.current;
+    if (!current) return;
+    const wall = current.scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === wallId);
+    if (!wall) return;
+    const width = 0.91;
+    const clearance = 0.1;
+    const length = wallLength(wall);
+    const openings = current.scene.architecture.filter((element): element is OpeningElement => element.kind === 'opening' && element.wallId === wallId).sort((a, b) => a.offset - b.offset);
+    const candidates: number[] = [];
+    let cursor = clearance;
+    openings.forEach((opening) => {
+      const gapEnd = opening.offset - clearance;
+      if (gapEnd - cursor >= width) candidates.push(cursor + (gapEnd - cursor - width) / 2);
+      cursor = Math.max(cursor, opening.offset + opening.width + clearance);
+    });
+    const finalGapEnd = length - clearance;
+    if (finalGapEnd - cursor >= width) candidates.push(cursor + (finalGapEnd - cursor - width) / 2);
+    const offset = candidates.sort((a, b) => Math.abs(a + width / 2 - length / 2) - Math.abs(b + width / 2 - length / 2))[0];
+    if (offset === undefined) {
+      setArchitectureMessage('This wall does not have enough clear space for a 0.91 m door.');
+      return;
+    }
+    const door: OpeningElement = { id: `door-${crypto.randomUUID()}`, kind: 'opening', openingType: 'door', wallId, offset, width, height: Math.min(2.03, wall.height), sillHeight: 0, swing: 'left', swingSide: 'in' };
+    const error = await saveScene({ ...current.scene, architecture: [...current.scene.architecture, door] }, 'Door added · drag it along the wall or enter an exact position.');
+    if (!error) setSelectedOpeningId(door.id);
+  };
+
+  const updateOpening = async (openingId: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'swing' | 'swingSide'>>) => {
+    const current = projectRef.current;
+    if (!current) return false;
+    const opening = current.scene.architecture.find((element): element is OpeningElement => element.kind === 'opening' && element.id === openingId);
+    if (!opening) return false;
+    const nextOpening = { ...opening, ...patch };
+    const wall = current.scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === opening.wallId);
+    if (!wall) return false;
+    if (nextOpening.width < 0.5 || nextOpening.width > 3 || nextOpening.offset < 0.1 || nextOpening.offset + nextOpening.width > wallLength(wall) - 0.1) {
+      setArchitectureMessage('Doors must be 0.50–3.00 m wide and remain at least 0.10 m from wall corners.');
+      return false;
+    }
+    if (nextOpening.height < 1.8 || nextOpening.height > wall.height) {
+      setArchitectureMessage('Door height must fit within the selected wall.');
+      return false;
+    }
+    const overlaps = current.scene.architecture.some((element) => element.kind === 'opening' && element.id !== openingId && element.wallId === opening.wallId && nextOpening.offset < element.offset + element.width + 0.1 && nextOpening.offset + nextOpening.width + 0.1 > element.offset);
+    if (overlaps) {
+      setArchitectureMessage('Doors and windows need at least 0.10 m of separation.');
+      return false;
+    }
+    const architecture = current.scene.architecture.map((element) => element.id === openingId ? nextOpening : element);
+    const error = await saveScene({ ...current.scene, architecture }, 'Door updated.');
+    return !error;
+  };
+
+  const deleteOpening = async (openingId: string) => {
+    const current = projectRef.current;
+    if (!current) return;
+    const error = await saveScene({ ...current.scene, architecture: current.scene.architecture.filter((element) => element.id !== openingId) }, 'Door removed.');
+    if (!error) setSelectedOpeningId('');
   };
 
   const deleteWall = async (wallId: string) => {
@@ -240,8 +433,8 @@ export default function Home() {
     const bounds = getArchitectureBounds(current.scene.architecture);
     const wall = current.scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === wallId);
     if (!wall) return;
-    if (isExteriorWall(wall, bounds)) {
-      setArchitectureMessage('Exterior walls are changed with the apartment size controls.');
+    if (isExteriorWall(wall, bounds, current.scene.architecture)) {
+      setArchitectureMessage('Exterior walls are removed by removing one of their corners.');
       return;
     }
     if (current.scene.architecture.some((element) => element.kind === 'opening' && element.wallId === wallId)) {
@@ -440,6 +633,8 @@ export default function Home() {
   const architecture = project?.scene.architecture ?? [];
   const rooms = architecture.filter((element): element is RoomElement => element.kind === 'room');
   const selectedWall = architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === selectedWallId);
+  const selectedOpening = architecture.find((element): element is OpeningElement => element.kind === 'opening' && element.id === selectedOpeningId);
+  const architectureSuccess = /^(Saving architecture|Wall added|Wall updated|Wall removed|Exterior shape updated|Exterior corner added|Exterior corner removed|Door added|Door updated|Door removed|Room renamed|Apartment resized)/.test(architectureMessage) && !architectureMessage.includes('outside the footprint');
 
   return (
     <main className="app-shell">
@@ -451,16 +646,16 @@ export default function Home() {
         ) : (
           <>
             {view === 'plan' && editMode === 'furnish' && <FurniturePanel selected={selected} onSelect={setSelected} objects={sceneObjects[layout]} />}
-            {view === 'plan' && editMode === 'architecture' && <ArchitecturePanel architecture={architecture} selectedWallId={selectedWallId} selectedRoomId={selectedRoomId} onSelectWall={(id) => { setSelectedWallId(id); setSelectedRoomId(''); setDrawingWall(false); }} onSelectRoom={(id) => { setSelectedRoomId(id); setSelectedWallId(''); setDrawingWall(false); }} onRenameRoom={renameRoom} />}
+            {view === 'plan' && editMode === 'architecture' && <ArchitecturePanel architecture={architecture} selectedWallId={selectedWallId} selectedRoomId={selectedRoomId} onSelectWall={(id) => { setSelectedWallId(id); setSelectedOpeningId(''); setSelectedRoomId(''); setDrawingWall(false); }} onSelectRoom={(id) => { setSelectedRoomId(id); setSelectedWallId(''); setSelectedOpeningId(''); setDrawingWall(false); }} onRenameRoom={renameRoom} />}
             {view === 'three' && <PreviewControls hour={hour} camera={camera} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} onHour={setHour} onCamera={setCamera} onReset={() => setCameraReset((value) => value + 1)} onShadows={setShowShadows} onLightPaths={setShowLightPaths} onMeasurements={setShowMeasurements} />}
             {view === 'evaluation' && <PriorityPanel />}
-            {view === 'plan' && <PlanView editMode={editMode} architecture={architecture} selectedWallId={selectedWallId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} selected={selected} onSelect={setSelected} onSelectWall={(id) => { setSelectedWallId(id); setSelectedRoomId(''); setDrawingWall(false); }} onSelectRoom={(id) => { setSelectedRoomId(id); setSelectedWallId(''); setDrawingWall(false); }} layout={layout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={editMode === 'architecture' ? architectureMessage : collisionMessage} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} onAddWall={addWall} onUpdateWall={updateWall} />}
+            {view === 'plan' && <PlanView editMode={editMode} architecture={architecture} selectedWallId={selectedWallId} selectedOpeningId={selectedOpeningId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} selected={selected} onSelect={setSelected} onSelectWall={(id) => { setSelectedWallId(id); setSelectedOpeningId(''); setSelectedRoomId(''); setDrawingWall(false); }} onSelectOpening={(id, wallId) => { setSelectedOpeningId(id); setSelectedWallId(wallId); setSelectedRoomId(''); setDrawingWall(false); }} onSelectRoom={(id) => { setSelectedRoomId(id); setSelectedWallId(''); setSelectedOpeningId(''); setDrawingWall(false); }} layout={layout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={editMode === 'architecture' ? architectureMessage : collisionMessage} statusError={editMode === 'architecture' ? Boolean(architectureMessage) && !architectureSuccess : Boolean(collisionMessage)} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} onAddWall={addWall} onUpdateWall={updateWall} onUpdateOpening={updateOpening} />}
             {view === 'three' && <ThreeDView hour={hour} camera={camera} cameraReset={cameraReset} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} objects={sceneObjects[layout]} architecture={architecture} />}
             {view === 'evaluation' && <EvaluationView />}
           </>
         )}
         {view === 'plan' && !compare && editMode === 'furnish' && <AddObjectPanel rooms={rooms} loading={projectRevision === null} onAdd={addObject} selectedObject={sceneObjects[layout].find((item) => item.id === selected)} onResize={resizeObject} onCommitResize={saveObjectDimensions} />}
-        {view === 'plan' && !compare && editMode === 'architecture' && <ArchitecturePropertiesPanel key={`${selectedWall?.id ?? 'apartment'}-${projectRevision}`} architecture={architecture} selectedWall={selectedWall} drawingWall={drawingWall} loading={projectRevision === null} onDrawingWall={(drawing) => { setDrawingWall(drawing); if (drawing) { setSelectedWallId(''); setSelectedRoomId(''); } }} onResizeApartment={resizeApartment} onUpdateWall={updateWall} onDeleteWall={deleteWall} />}
+        {view === 'plan' && !compare && editMode === 'architecture' && <ArchitecturePropertiesPanel key={`${selectedOpening?.id ?? selectedWall?.id ?? 'apartment'}-${projectRevision}`} architecture={architecture} selectedWall={selectedWall} selectedOpening={selectedOpening} drawingWall={drawingWall} loading={projectRevision === null} onDrawingWall={(drawing) => { setDrawingWall(drawing); if (drawing) { setSelectedWallId(''); setSelectedOpeningId(''); setSelectedRoomId(''); } }} onResizeApartment={resizeApartment} onUpdateWall={updateWall} onDeleteWall={deleteWall} onAddExteriorCorner={addExteriorCorner} onRemoveExteriorCorner={removeExteriorCorner} onAddDoor={addDoor} onUpdateOpening={updateOpening} onDeleteOpening={deleteOpening} onCloseOpening={() => setSelectedOpeningId('')} />}
       </div>
     </main>
   );
@@ -529,7 +724,7 @@ function ArchitecturePanel({ architecture, selectedWallId, selectedRoomId, onSel
       <div className="architecture-list-heading"><span>WALLS</span><small>{walls.length} total</small></div>
       <div className="wall-list">
         {walls.map((wall, index) => {
-          const exterior = isExteriorWall(wall, bounds);
+          const exterior = isExteriorWall(wall, bounds, architecture);
           return <button key={wall.id} className={selectedWallId === wall.id ? 'selected' : ''} onClick={() => onSelectWall(wall.id)}><i>{String(index + 1).padStart(2, '0')}</i><span><strong>{exterior ? 'Exterior wall' : 'Interior wall'}</strong><small>{wallLength(wall).toFixed(2)} m · {wall.thickness.toFixed(2)} m thick</small></span></button>;
         })}
       </div>
@@ -551,13 +746,14 @@ function RoomNameEditor({ room, edgeLengths, onRenameRoom }: { room: RoomElement
   return <form className="room-name-editor" onSubmit={submit}><label>ROOM NAME<input value={name} onChange={(event) => setName(event.target.value)} maxLength={40} /></label>{!isRectangularRoom(room) && <div className="room-edge-lengths"><span>EDGE LENGTHS</span><p>{edgeLengths.map((length, index) => <b key={index}>{index + 1} · {length.toFixed(2)} m</b>)}</p></div>}<button disabled={saving || !name.trim() || name.trim() === room.name}>{saving ? 'Saving…' : 'Save name'}</button></form>;
 }
 
-function ArchitecturePropertiesPanel({ architecture, selectedWall, drawingWall, loading, onDrawingWall, onResizeApartment, onUpdateWall, onDeleteWall }: { architecture: ArchitecturalElement[]; selectedWall?: WallElement; drawingWall: boolean; loading: boolean; onDrawingWall: (drawing: boolean) => void; onResizeApartment: (width: number, depth: number) => Promise<string | null>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => Promise<boolean>; onDeleteWall: (id: string) => Promise<void> }) {
+function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpening, drawingWall, loading, onDrawingWall, onResizeApartment, onUpdateWall, onDeleteWall, onAddExteriorCorner, onRemoveExteriorCorner, onAddDoor, onUpdateOpening, onDeleteOpening, onCloseOpening }: { architecture: ArchitecturalElement[]; selectedWall?: WallElement; selectedOpening?: OpeningElement; drawingWall: boolean; loading: boolean; onDrawingWall: (drawing: boolean) => void; onResizeApartment: (width: number, depth: number) => Promise<string | null>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => Promise<boolean>; onDeleteWall: (id: string) => Promise<void>; onAddExteriorCorner: (id: string) => Promise<void>; onRemoveExteriorCorner: (id: string, endpoint: WallEndpoint) => Promise<void>; onAddDoor: (wallId: string) => Promise<void>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'swing' | 'swingSide'>>) => Promise<boolean>; onDeleteOpening: (id: string) => Promise<void>; onCloseOpening: () => void }) {
   const bounds = getArchitectureBounds(architecture);
   const [width, setWidth] = useState(bounds.width);
   const [depth, setDepth] = useState(bounds.depth);
   const [saving, setSaving] = useState(false);
   const [wallValues, setWallValues] = useState(() => selectedWall ? { length: wallLength(selectedWall), thickness: selectedWall.thickness, height: selectedWall.height } : { length: 0, thickness: 0.12, height: 2.74 });
-  const exterior = selectedWall ? isExteriorWall(selectedWall, bounds) : false;
+  const [doorValues, setDoorValues] = useState(() => selectedOpening ? { offset: selectedOpening.offset, width: selectedOpening.width, height: selectedOpening.height, swing: selectedOpening.swing ?? 'left', swingSide: selectedOpening.swingSide ?? 'in' } : { offset: 0.1, width: 0.91, height: 2.03, swing: 'left' as const, swingSide: 'in' as const });
+  const exterior = selectedWall ? isExteriorWall(selectedWall, bounds, architecture) : false;
 
   const resize = async (event: FormEvent) => {
     event.preventDefault();
@@ -576,23 +772,50 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, drawingWall, 
       y: selectedWall.start.y + (selectedWall.end.y - selectedWall.start.y) * scale,
     };
     setSaving(true);
-    await onUpdateWall(selectedWall.id, { end: exterior ? selectedWall.end : resizedEnd, thickness: wallValues.thickness, height: wallValues.height });
+    await onUpdateWall(selectedWall.id, { end: resizedEnd, thickness: wallValues.thickness, height: wallValues.height });
     setSaving(false);
   };
 
+  const saveDoor = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedOpening) return;
+    setSaving(true);
+    await onUpdateOpening(selectedOpening.id, doorValues);
+    setSaving(false);
+  };
+
+  const heading = selectedOpening ? 'Door properties' : selectedWall ? 'Wall properties' : drawingWall ? 'Add interior wall' : 'Apartment size';
+  const description = selectedOpening ? 'Drag the door along its wall or enter exact dimensions and swing below.'
+    : selectedWall ? exterior ? 'Drag either corner or the highlighted edge to reshape the exterior perimeter.' : 'Drag either endpoint in the plan, or enter exact dimensions below.'
+      : drawingWall ? 'Choose a start point and an end point directly on the plan.' : 'Resize the full plan or start drawing a new interior wall.';
+
   return (
     <aside className="add-object-panel architecture-properties">
-      <div className="add-object-heading"><span className="eyebrow">ARCHITECTURE</span><h2>{selectedWall ? 'Wall properties' : drawingWall ? 'Add interior wall' : 'Apartment size'}</h2><p>{selectedWall ? exterior ? 'Exterior walls resize with the full apartment footprint.' : 'Drag either endpoint in the plan, or enter exact dimensions below.' : drawingWall ? 'Choose a start point and an end point directly on the plan.' : 'Resize the full plan or start drawing a new interior wall.'}</p></div>
-      {selectedWall ? (
+      <div className="add-object-heading"><span className="eyebrow">ARCHITECTURE</span><h2>{heading}</h2><p>{description}</p></div>
+      {selectedOpening && selectedWall ? (
+        <form onSubmit={saveDoor}>
+          <button type="button" className="back-to-wall-button" onClick={onCloseOpening}>← Back to wall</button>
+          <div className="selected-wall-badge"><span>DOOR · {exterior ? 'EXTERIOR' : 'INTERIOR'} WALL</span><strong>{selectedOpening.id}</strong></div>
+          <label className="dimension-control"><span>POSITION FROM START · METERS</span><div><input aria-label="Door position slider" type="range" min="0.1" max={Math.max(0.1, wallLength(selectedWall) - doorValues.width - 0.1)} step="0.01" value={doorValues.offset} onChange={(event) => setDoorValues((current) => ({ ...current, offset: Number(event.target.value) }))} /><input aria-label="Exact door position" type="number" min="0.1" max={Math.max(0.1, wallLength(selectedWall) - doorValues.width - 0.1)} step="0.01" value={doorValues.offset} onChange={(event) => setDoorValues((current) => ({ ...current, offset: Number(event.target.value) }))} /></div></label>
+          <label className="dimension-control"><span>WIDTH · METERS</span><div><input aria-label="Door width slider" type="range" min="0.5" max="3" step="0.01" value={doorValues.width} onChange={(event) => setDoorValues((current) => ({ ...current, width: Number(event.target.value) }))} /><input aria-label="Exact door width" type="number" min="0.5" max="3" step="0.01" value={doorValues.width} onChange={(event) => setDoorValues((current) => ({ ...current, width: Number(event.target.value) }))} /></div></label>
+          <label className="dimension-control"><span>HEIGHT · METERS</span><div><input aria-label="Door height slider" type="range" min="1.8" max={selectedWall.height} step="0.01" value={doorValues.height} onChange={(event) => setDoorValues((current) => ({ ...current, height: Number(event.target.value) }))} /><input aria-label="Exact door height" type="number" min="1.8" max={selectedWall.height} step="0.01" value={doorValues.height} onChange={(event) => setDoorValues((current) => ({ ...current, height: Number(event.target.value) }))} /></div></label>
+          <fieldset className="door-toggle"><legend>HINGE SIDE</legend><button type="button" className={doorValues.swing === 'left' ? 'active' : ''} onClick={() => setDoorValues((current) => ({ ...current, swing: 'left' }))}>Left</button><button type="button" className={doorValues.swing === 'right' ? 'active' : ''} onClick={() => setDoorValues((current) => ({ ...current, swing: 'right' }))}>Right</button></fieldset>
+          <fieldset className="door-toggle"><legend>SWING DIRECTION</legend><button type="button" className={doorValues.swingSide === 'in' ? 'active' : ''} onClick={() => setDoorValues((current) => ({ ...current, swingSide: 'in' }))}>Inward</button><button type="button" className={doorValues.swingSide === 'out' ? 'active' : ''} onClick={() => setDoorValues((current) => ({ ...current, swingSide: 'out' }))}>Outward</button></fieldset>
+          <button className="place-object" disabled={loading || saving}>{saving ? 'Saving…' : 'Apply door changes'}</button>
+          <button type="button" className="delete-wall-button" disabled={saving} onClick={() => onDeleteOpening(selectedOpening.id)}>Remove door</button>
+        </form>
+      ) : selectedWall ? (
         <form onSubmit={saveWall}>
           <div className="selected-wall-badge"><span>{exterior ? 'EXTERIOR' : 'INTERIOR'}</span><strong>{selectedWall.id}</strong></div>
-          {!exterior && <div className="wall-drag-hint"><span>↔</span><p><strong>Drag either endpoint</strong>Measurements update live and save when released.</p></div>}
-          <label className="dimension-control"><span>LENGTH · METERS <small>{exterior ? 'Use apartment size' : 'Start fixed for exact edits'}</small></span><div><input aria-label="Wall length slider" type="range" min="0.1" max="30" step="0.01" disabled={exterior} value={wallValues.length} onChange={(event) => setWallValues((current) => ({ ...current, length: Number(event.target.value) }))} /><input aria-label="Exact wall length" type="number" min="0.1" max="30" step="0.01" disabled={exterior} value={wallValues.length} onChange={(event) => setWallValues((current) => ({ ...current, length: Number(event.target.value) }))} /></div></label>
+          <div className="wall-drag-hint"><span>↔</span><p><strong>{exterior ? 'Drag corners or edge' : 'Drag either endpoint'}</strong>Measurements update live and save when released.</p></div>
+          <button type="button" className="add-door-button" disabled={loading || saving} onClick={() => onAddDoor(selectedWall.id)}>＋ Add door</button>
+          {exterior && <div className="exterior-corner-actions"><button type="button" onClick={() => onAddExteriorCorner(selectedWall.id)}>＋ Add corner</button><button type="button" onClick={() => onRemoveExteriorCorner(selectedWall.id, 'start')}>− Start corner</button><button type="button" onClick={() => onRemoveExteriorCorner(selectedWall.id, 'end')}>− End corner</button></div>}
+          <label className="dimension-control"><span>LENGTH · METERS <small>Start fixed for exact edits</small></span><div><input aria-label="Wall length slider" type="range" min="0.1" max="30" step="0.01" value={wallValues.length} onChange={(event) => setWallValues((current) => ({ ...current, length: Number(event.target.value) }))} /><input aria-label="Exact wall length" type="number" min="0.1" max="30" step="0.01" value={wallValues.length} onChange={(event) => setWallValues((current) => ({ ...current, length: Number(event.target.value) }))} /></div></label>
           <label className="dimension-control"><span>THICKNESS · METERS</span><div><input aria-label="Wall thickness slider" type="range" min="0.05" max="0.5" step="0.01" value={wallValues.thickness} onChange={(event) => setWallValues((current) => ({ ...current, thickness: Number(event.target.value) }))} /><input aria-label="Exact wall thickness" type="number" min="0.05" max="0.5" step="0.01" value={wallValues.thickness} onChange={(event) => setWallValues((current) => ({ ...current, thickness: Number(event.target.value) }))} /></div></label>
           <label className="dimension-control"><span>HEIGHT · METERS</span><div><input aria-label="Wall height slider" type="range" min="1.8" max="6" step="0.01" value={wallValues.height} onChange={(event) => setWallValues((current) => ({ ...current, height: Number(event.target.value) }))} /><input aria-label="Exact wall height" type="number" min="1.8" max="6" step="0.01" value={wallValues.height} onChange={(event) => setWallValues((current) => ({ ...current, height: Number(event.target.value) }))} /></div></label>
           <div className="wall-coordinate-readout"><span>START</span><strong>{selectedWall.start.x.toFixed(2)}, {selectedWall.start.y.toFixed(2)}</strong><span>END</span><strong>{selectedWall.end.x.toFixed(2)}, {selectedWall.end.y.toFixed(2)}</strong></div>
           <button className="place-object" disabled={loading || saving}>{saving ? 'Saving…' : 'Apply wall dimensions'}</button>
-          <button type="button" className="delete-wall-button" disabled={exterior || saving} onClick={() => onDeleteWall(selectedWall.id)}>{exterior ? 'Exterior wall is protected' : 'Remove interior wall'}</button>
+          {!exterior && <button type="button" className="delete-wall-button" disabled={saving} onClick={() => onDeleteWall(selectedWall.id)}>Remove interior wall</button>}
         </form>
       ) : (
         <>
@@ -643,7 +866,7 @@ function furnitureVisualKind(item: SceneObject) {
   return 'custom';
 }
 
-function PlanView({ editMode, architecture, selectedWallId, selectedRoomId, drawingWall, selected, onSelect, onSelectWall, onSelectRoom, layout, zoom, objects, collisionMessage, onMove, onCommitMove, onRotate, onDelete, onAddWall, onUpdateWall }: { editMode: EditMode; architecture: ArchitecturalElement[]; selectedWallId: string; selectedRoomId: string; drawingWall: boolean; selected: string; onSelect: (item: string) => void; onSelectWall: (id: string) => void; onSelectRoom: (id: string) => void; layout: LayoutKey; zoom: number; objects: SceneObject[]; collisionMessage: string; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<void>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<boolean> }) {
+function PlanView({ editMode, architecture, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, selected, onSelect, onSelectWall, onSelectOpening, onSelectRoom, layout, zoom, objects, collisionMessage, statusError, onMove, onCommitMove, onRotate, onDelete, onAddWall, onUpdateWall, onUpdateOpening }: { editMode: EditMode; architecture: ArchitecturalElement[]; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; selected: string; onSelect: (item: string) => void; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; layout: LayoutKey; zoom: number; objects: SceneObject[]; collisionMessage: string; statusError: boolean; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<void>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<boolean>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<boolean> }) {
   const selectedObject = objects.find((item) => item.id === selected);
   const bounds = getArchitectureBounds(architecture);
   const frame = planFrameSize(bounds.width, bounds.depth);
@@ -656,7 +879,7 @@ function PlanView({ editMode, architecture, selectedWallId, selectedRoomId, draw
       <div className={`floor-plan-wrap layout-${layout.toLowerCase()}`} style={{ transform: `translate(-50%, -49%) scale(${zoom / 100})` }}>
         <div className="geometry-measure top" style={{ width: frame.width }}>{bounds.width.toFixed(2)} m</div><div className="geometry-measure left" style={{ height: frame.height }}>{bounds.depth.toFixed(2)} m</div>
         <div className="floor-plan geometry-plan" style={{ width: frame.width, height: frame.height }}>
-          <ArchitecturePlanLayer key={drawingWall ? 'drawing' : 'selecting'} architecture={architecture} bounds={bounds} editMode={editMode} selectedWallId={selectedWallId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} onSelectWall={onSelectWall} onSelectRoom={onSelectRoom} onAddWall={onAddWall} onUpdateWall={onUpdateWall} />
+          <ArchitecturePlanLayer key={drawingWall ? 'drawing' : 'selecting'} architecture={architecture} bounds={bounds} editMode={editMode} selectedWallId={selectedWallId} selectedOpeningId={selectedOpeningId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} onSelectWall={onSelectWall} onSelectOpening={onSelectOpening} onSelectRoom={onSelectRoom} onAddWall={onAddWall} onUpdateWall={onUpdateWall} onUpdateOpening={onUpdateOpening} />
           {editMode === 'furnish' && objects.map((item) => <PlanFurniture key={item.id} item={item} {...shared} />)}
         </div>
       </div>
@@ -665,7 +888,7 @@ function PlanView({ editMode, architecture, selectedWallId, selectedRoomId, draw
         <div><span>DRAWING</span><strong>FURNITURE + CLEARANCE PLAN</strong></div>
         <div className="sheet-meta"><span>SCALE<br /><b>1/4″ = 1′–0″</b></span><span>DATE<br /><b>26 AUG 2026</b></span><strong>A–01</strong></div>
       </div>
-      <div className={`plan-status ${collisionMessage ? 'has-collision' : ''}`} role="status"><span className={collisionMessage ? 'status-collision' : 'status-good'}>{collisionMessage ? `⚠ ${collisionMessage}` : editMode === 'architecture' ? '✓ Architecture is valid' : '✓ No furniture collisions'}</span><span>{editMode === 'architecture' ? drawingWall ? 'Click two points to add a wall · Escape cancels' : 'Select an interior wall, then drag either endpoint' : 'Drag anywhere in the apartment · arrows move · toolbar rotates/removes'}</span></div>
+      <div className={`plan-status ${statusError ? 'has-collision' : ''}`} role="status"><span className={statusError ? 'status-collision' : 'status-good'}>{collisionMessage ? `${statusError ? '⚠' : '✓'} ${collisionMessage}` : editMode === 'architecture' ? '✓ Architecture is valid' : '✓ No furniture collisions'}</span><span>{editMode === 'architecture' ? drawingWall ? 'Click two points to add a wall · Escape cancels' : 'Drag wall corners, exterior edges, or doors directly in the plan' : 'Drag anywhere in the apartment · arrows move · toolbar rotates/removes'}</span></div>
     </section>
   );
 }
@@ -676,7 +899,7 @@ function planFrameSize(width: number, depth: number) {
   return { width: Math.max(180, width * scale), height: Math.max(180, depth * scale) };
 }
 
-function snapPoint(raw: Point2, architecture: ArchitecturalElement[], bounds: ReturnType<typeof getArchitectureBounds>) {
+function snapPoint(raw: Point2, architecture: ArchitecturalElement[], bounds: ReturnType<typeof getArchitectureBounds>, clampToBounds = true) {
   const grid = (value: number) => Math.round(value * 10) / 10;
   const tolerance = Math.min(0.25, Math.max(bounds.width, bounds.depth) * 0.018);
   const walls = architecture.filter((element): element is WallElement => element.kind === 'wall');
@@ -697,13 +920,14 @@ function snapPoint(raw: Point2, architecture: ArchitecturalElement[], bounds: Re
     return !nearest || Math.hypot(point.x - raw.x, point.y - raw.y) < Math.hypot(nearest.x - raw.x, nearest.y - raw.y) ? point : nearest;
   }, null);
   const point = nearestWallPoint ?? { x: grid(raw.x), y: grid(raw.y) };
+  if (!clampToBounds) return point;
   return {
     x: Math.max(bounds.minX, Math.min(bounds.maxX, point.x)),
     y: Math.max(bounds.minY, Math.min(bounds.maxY, point.y)),
   };
 }
 
-function snapWallEnd(start: Point2, raw: Point2, architecture: ArchitecturalElement[], bounds: ReturnType<typeof getArchitectureBounds>) {
+function snapWallEnd(start: Point2, raw: Point2, architecture: ArchitecturalElement[], bounds: ReturnType<typeof getArchitectureBounds>, clampToBounds = true) {
   const dx = raw.x - start.x;
   const dy = raw.y - start.y;
   const angle = Math.atan2(dy, dx);
@@ -713,19 +937,35 @@ function snapWallEnd(start: Point2, raw: Point2, architecture: ArchitecturalElem
   const aligned = horizontalDistance < threshold ? { x: raw.x, y: start.y }
     : verticalDistance < threshold ? { x: start.x, y: raw.y }
     : raw;
-  return snapPoint(aligned, architecture, bounds);
+  return snapPoint(aligned, architecture, bounds, clampToBounds);
 }
 
 type WallEndpoint = 'start' | 'end';
-type WallDragState = { wallId: string; endpoint: WallEndpoint; pointerId: number; start: Point2; end: Point2 };
+type WallDragState = { wallId: string; mode: 'endpoint' | 'edge'; endpoint?: WallEndpoint; pointerId: number; pointerStart: Point2; originStart: Point2; originEnd: Point2; start: Point2; end: Point2 };
+type DoorDragState = { openingId: string; pointerId: number; offset: number };
 
-function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId, selectedRoomId, drawingWall, onSelectWall, onSelectRoom, onAddWall, onUpdateWall }: { architecture: ArchitecturalElement[]; bounds: ReturnType<typeof getArchitectureBounds>; editMode: EditMode; selectedWallId: string; selectedRoomId: string; drawingWall: boolean; onSelectWall: (id: string) => void; onSelectRoom: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<void>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<boolean> }) {
+function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, onSelectWall, onSelectOpening, onSelectRoom, onAddWall, onUpdateWall, onUpdateOpening }: { architecture: ArchitecturalElement[]; bounds: ReturnType<typeof getArchitectureBounds>; editMode: EditMode; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<void>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<boolean>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<boolean> }) {
   const [draftStart, setDraftStart] = useState<Point2 | null>(null);
   const [draftEnd, setDraftEnd] = useState<Point2 | null>(null);
   const [wallDrag, setWallDrag] = useState<WallDragState | null>(null);
+  const [doorDrag, setDoorDrag] = useState<DoorDragState | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const rooms = architecture.filter((element): element is RoomElement => element.kind === 'room');
   const walls = architecture.filter((element): element is WallElement => element.kind === 'wall');
-  const renderedWalls = walls.map((wall) => wallDrag?.wallId === wall.id ? { ...wall, start: wallDrag.start, end: wallDrag.end } : wall);
+  const openings = architecture.filter((element): element is OpeningElement => element.kind === 'opening');
+  const draggedOriginal = wallDrag ? walls.find((wall) => wall.id === wallDrag.wallId) : undefined;
+  const draggedExterior = draggedOriginal ? isExteriorWall(draggedOriginal, bounds, architecture) : false;
+  const movedCorners = wallDrag && draggedExterior ? [
+    ...(samePoint(wallDrag.originStart, wallDrag.start) ? [] : [{ before: wallDrag.originStart, after: wallDrag.start }]),
+    ...(samePoint(wallDrag.originEnd, wallDrag.end) ? [] : [{ before: wallDrag.originEnd, after: wallDrag.end }]),
+  ] : [];
+  const renderedWalls = walls.map((wall) => {
+    if (wallDrag?.wallId === wall.id) return { ...wall, start: wallDrag.start, end: wallDrag.end };
+    const movedStart = movedCorners.find((corner) => samePoint(wall.start, corner.before));
+    const movedEnd = movedCorners.find((corner) => samePoint(wall.end, corner.before));
+    return movedStart || movedEnd ? { ...wall, start: movedStart?.after ?? wall.start, end: movedEnd?.after ?? wall.end } : wall;
+  });
+  const renderedOpenings = openings.map((opening) => doorDrag?.openingId === opening.id ? { ...opening, offset: doorDrag.offset } : opening);
 
   useEffect(() => {
     const cancel = (event: globalThis.KeyboardEvent) => {
@@ -733,39 +973,73 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
         setDraftStart(null);
         setDraftEnd(null);
         setWallDrag(null);
+        setDoorDrag(null);
       }
     };
     window.addEventListener('keydown', cancel);
     return () => window.removeEventListener('keydown', cancel);
   }, []);
 
-  const pointFromEvent = (event: PointerEvent<SVGSVGElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
+  const pointFromClient = (clientX: number, clientY: number): Point2 | null => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
     return {
-      x: bounds.minX + ((event.clientX - rect.left) / rect.width) * bounds.width,
-      y: bounds.minY + ((event.clientY - rect.top) / rect.height) * bounds.depth,
+      x: bounds.minX + ((clientX - rect.left) / rect.width) * bounds.width,
+      y: bounds.minY + ((clientY - rect.top) / rect.height) * bounds.depth,
     };
+  };
+  const pointFromEvent = (event: PointerEvent<SVGSVGElement | SVGCircleElement | SVGLineElement>) => pointFromClient(event.clientX, event.clientY);
+
+  const wallDragAtPoint = (current: WallDragState, raw: Point2): WallDragState => {
+    const wall = walls.find((candidate) => candidate.id === current.wallId);
+    if (!wall) return current;
+    if (current.mode === 'edge') {
+      const delta = { x: Math.round((raw.x - current.pointerStart.x) * 10) / 10, y: Math.round((raw.y - current.pointerStart.y) * 10) / 10 };
+      return { ...current, start: { x: current.originStart.x + delta.x, y: current.originStart.y + delta.y }, end: { x: current.originEnd.x + delta.x, y: current.originEnd.y + delta.y } };
+    }
+    const endpoint = current.endpoint ?? 'end';
+    const fixedPoint = endpoint === 'start' ? current.originEnd : current.originStart;
+    const movingOrigin = endpoint === 'start' ? current.originStart : current.originEnd;
+    const exterior = isExteriorWall(wall, bounds, architecture);
+    const excludedWallIds = new Set(walls.filter((candidate) => candidate.id === wall.id || (exterior && [candidate.start, candidate.end].some((point) => samePoint(point, movingOrigin)))).map((candidate) => candidate.id));
+    const snappingArchitecture = architecture.filter((element) => !excludedWallIds.has(element.id));
+    const point = snapWallEnd(fixedPoint, raw, snappingArchitecture, bounds, !exterior);
+    return { ...current, [endpoint]: point };
+  };
+
+  const doorOffsetAtPoint = (opening: OpeningElement, raw: Point2) => {
+    const wall = walls.find((candidate) => candidate.id === opening.wallId);
+    if (!wall) return opening.offset;
+    const dx = wall.end.x - wall.start.x;
+    const dy = wall.end.y - wall.start.y;
+    const length = wallLength(wall);
+    const projectedCenter = ((raw.x - wall.start.x) * dx + (raw.y - wall.start.y) * dy) / length;
+    const offset = Math.round((projectedCenter - opening.width / 2) * 20) / 20;
+    return Math.max(0.1, Math.min(length - opening.width - 0.1, offset));
   };
 
   const pointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    const point = pointFromEvent(event);
+    if (!point) return;
     if (wallDrag && event.pointerId === wallDrag.pointerId) {
       event.preventDefault();
-      const wall = walls.find((candidate) => candidate.id === wallDrag.wallId);
-      if (!wall) return;
-      const fixedPoint = wallDrag.endpoint === 'start' ? wallDrag.end : wallDrag.start;
-      const snappingArchitecture = architecture.filter((element) => element.id !== wall.id);
-      const point = snapWallEnd(fixedPoint, pointFromEvent(event), snappingArchitecture, bounds);
-      setWallDrag((current) => current ? { ...current, [current.endpoint]: point } : current);
+      setWallDrag((current) => current ? wallDragAtPoint(current, point) : current);
       return;
     }
-    if (!drawingWall || !draftStart) return;
-    setDraftEnd(snapWallEnd(draftStart, pointFromEvent(event), architecture, bounds));
+    if (doorDrag && event.pointerId === doorDrag.pointerId) {
+      event.preventDefault();
+      const opening = openings.find((candidate) => candidate.id === doorDrag.openingId);
+      if (opening) setDoorDrag((current) => current ? { ...current, offset: doorOffsetAtPoint(opening, point) } : current);
+      return;
+    }
+    if (drawingWall && draftStart) setDraftEnd(snapWallEnd(draftStart, point, architecture, bounds));
   };
 
   const pointerDown = async (event: PointerEvent<SVGSVGElement>) => {
     if (!drawingWall) return;
     event.preventDefault();
     const raw = pointFromEvent(event);
+    if (!raw) return;
     const point = draftStart ? snapWallEnd(draftStart, raw, architecture, bounds) : snapPoint(raw, architecture, bounds);
     if (!draftStart) {
       setDraftStart(point);
@@ -777,55 +1051,99 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
     setDraftEnd(null);
   };
 
-  const beginWallDrag = (event: PointerEvent<SVGCircleElement>, wall: WallElement, endpoint: WallEndpoint) => {
-    if (drawingWall || isExteriorWall(wall, bounds)) return;
+  const beginWallEndpointDrag = (event: PointerEvent<SVGCircleElement>, wall: WallElement, endpoint: WallEndpoint) => {
+    if (drawingWall) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
-    setWallDrag({ wallId: wall.id, endpoint, pointerId: event.pointerId, start: wall.start, end: wall.end });
+    const pointerStart = pointFromEvent(event);
+    if (!pointerStart) return;
+    setWallDrag({ wallId: wall.id, mode: 'endpoint', endpoint, pointerId: event.pointerId, pointerStart, originStart: wall.start, originEnd: wall.end, start: wall.start, end: wall.end });
   };
 
-  const finishWallDrag = async (event: PointerEvent<SVGSVGElement>) => {
-    if (!wallDrag || event.pointerId !== wallDrag.pointerId) return;
+  const beginWallEdgeDrag = (event: PointerEvent<SVGLineElement>, wall: WallElement) => {
+    if (drawingWall || selectedWallId !== wall.id || !isExteriorWall(wall, bounds, architecture)) return;
     event.preventDefault();
-    const wall = walls.find((candidate) => candidate.id === wallDrag.wallId);
-    if (!wall) {
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const pointerStart = pointFromEvent(event);
+    if (!pointerStart) return;
+    setWallDrag({ wallId: wall.id, mode: 'edge', pointerId: event.pointerId, pointerStart, originStart: wall.start, originEnd: wall.end, start: wall.start, end: wall.end });
+  };
+
+  const beginDoorDrag = (event: PointerEvent<SVGLineElement>, opening: OpeningElement) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (selectedOpeningId !== opening.id) onSelectOpening(opening.id, opening.wallId);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDoorDrag({ openingId: opening.id, pointerId: event.pointerId, offset: opening.offset });
+  };
+
+  const beginDoorHandleDrag = (event: PointerEvent<SVGCircleElement>, opening: OpeningElement) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (selectedOpeningId !== opening.id) onSelectOpening(opening.id, opening.wallId);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDoorDrag({ openingId: opening.id, pointerId: event.pointerId, offset: opening.offset });
+  };
+
+  const finishInteraction = async (event: PointerEvent<SVGSVGElement>) => {
+    const point = pointFromEvent(event);
+    if (!point) {
+      setWallDrag(null);
+      setDoorDrag(null);
+      return;
+    }
+    if (wallDrag && event.pointerId === wallDrag.pointerId) {
+      event.preventDefault();
+      const next = wallDragAtPoint(wallDrag, point);
+      setWallDrag(next);
+      if (!samePoint(next.start, next.originStart) || !samePoint(next.end, next.originEnd)) await onUpdateWall(next.wallId, { start: next.start, end: next.end });
       setWallDrag(null);
       return;
     }
-    const fixedPoint = wallDrag.endpoint === 'start' ? wallDrag.end : wallDrag.start;
-    const snappingArchitecture = architecture.filter((element) => element.id !== wall.id);
-    const point = snapWallEnd(fixedPoint, pointFromEvent(event), snappingArchitecture, bounds);
-    const originalPoint = wallDrag.endpoint === 'start' ? wall.start : wall.end;
-    if (Math.hypot(point.x - originalPoint.x, point.y - originalPoint.y) < 0.001) {
-      setWallDrag(null);
-      return;
+    if (doorDrag && event.pointerId === doorDrag.pointerId) {
+      event.preventDefault();
+      const opening = openings.find((candidate) => candidate.id === doorDrag.openingId);
+      if (opening) {
+        const offset = doorOffsetAtPoint(opening, point);
+        setDoorDrag({ ...doorDrag, offset });
+        if (Math.abs(offset - opening.offset) > 0.001) await onUpdateOpening(opening.id, { offset });
+      }
+      setDoorDrag(null);
     }
-    setWallDrag((current) => current ? { ...current, [current.endpoint]: point } : current);
-    await onUpdateWall(wall.id, { [wallDrag.endpoint]: point });
-    setWallDrag(null);
   };
 
   const fontSize = Math.max(bounds.width, bounds.depth) / 55;
   return (
-    <svg className={`architecture-svg ${drawingWall ? 'drawing-wall' : ''} ${wallDrag ? 'dragging-wall' : ''}`} viewBox={`${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.depth}`} preserveAspectRatio="none" onPointerMove={pointerMove} onPointerDown={pointerDown} onPointerUp={finishWallDrag} onPointerCancel={() => setWallDrag(null)} aria-label="Apartment rooms and walls">
+    <svg ref={svgRef} className={`architecture-svg ${drawingWall ? 'drawing-wall' : ''} ${wallDrag ? 'dragging-wall' : ''} ${doorDrag ? 'dragging-door' : ''}`} viewBox={`${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.depth}`} preserveAspectRatio="none" onPointerMove={pointerMove} onPointerDown={pointerDown} onPointerUp={finishInteraction} onPointerCancel={() => { setWallDrag(null); setDoorDrag(null); }} aria-label="Apartment rooms and walls">
       {rooms.map((room, index) => {
         const center = polygonCentroid(room.boundary);
         return <g key={room.id} className={`architecture-room-group ${selectedRoomId === room.id ? 'selected' : ''}`} onPointerDown={(event) => { if (!drawingWall && editMode === 'architecture') { event.stopPropagation(); onSelectRoom(room.id); } }}><polygon className={`architecture-room room-tone-${index % 4}`} points={room.boundary.map((point) => `${point.x},${point.y}`).join(' ')} /><text x={center.x} y={center.y - fontSize * 0.15} fontSize={fontSize} textAnchor="middle">{room.name.toUpperCase()}</text><text className="room-area-label" x={center.x} y={center.y + fontSize} fontSize={fontSize * 0.82} textAnchor="middle">{polygonArea(room.boundary).toFixed(1)} m²</text></g>;
       })}
       {renderedWalls.map((wall) => {
-        const exterior = isExteriorWall(walls.find((candidate) => candidate.id === wall.id) ?? wall, bounds);
+        const originalWall = walls.find((candidate) => candidate.id === wall.id) ?? wall;
+        const exterior = isExteriorWall(originalWall, bounds, architecture);
         const selectedWall = editMode === 'architecture' && selectedWallId === wall.id;
-        return <g key={wall.id} className={`architecture-wall ${selectedWall ? 'selected' : ''} ${wallDrag?.wallId === wall.id ? 'dragging' : ''}`} onPointerDown={(event) => { if (!drawingWall && editMode === 'architecture') { event.stopPropagation(); onSelectWall(wall.id); } }}><line className="wall-visible" x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness, 0.07)} /><line className="wall-hit-target" x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness * 4, 0.28)} />{selectedWall && <>{!exterior && <><circle role="button" aria-label="Drag wall start point" className="wall-endpoint-hit" cx={wall.start.x} cy={wall.start.y} r={fontSize} onPointerDown={(event) => beginWallDrag(event, wall, 'start')} /><circle className="wall-endpoint-handle start" pointerEvents="none" cx={wall.start.x} cy={wall.start.y} r={fontSize * 0.5} /><circle role="button" aria-label="Drag wall end point" className="wall-endpoint-hit" cx={wall.end.x} cy={wall.end.y} r={fontSize} onPointerDown={(event) => beginWallDrag(event, wall, 'end')} /><circle className="wall-endpoint-handle end" pointerEvents="none" cx={wall.end.x} cy={wall.end.y} r={fontSize * 0.5} /></>}<text className="wall-length-label" x={(wall.start.x + wall.end.x) / 2} y={(wall.start.y + wall.end.y) / 2 - fontSize * 0.65} fontSize={fontSize * 0.9} textAnchor="middle">{wallLength(wall).toFixed(2)} m · {exterior ? 'SIZE CONTROLS' : wallDrag?.wallId === wall.id ? 'DRAGGING' : 'DRAG EITHER END'}</text></>}</g>;
+        return <g key={wall.id} className={`architecture-wall ${selectedWall ? 'selected' : ''} ${wallDrag?.wallId === wall.id ? 'dragging' : ''}`} onPointerDown={(event) => { if (!drawingWall && editMode === 'architecture') { event.stopPropagation(); onSelectWall(wall.id); } }}><line className="wall-visible" x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness, 0.07)} /><line className={`wall-hit-target ${selectedWall && exterior ? 'edge-draggable' : ''}`} x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness * 4, 0.28)} onPointerDown={(event) => beginWallEdgeDrag(event, originalWall)} />{selectedWall && <><circle role="button" aria-label="Drag wall start point" className="wall-endpoint-hit" cx={wall.start.x} cy={wall.start.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'start')} /><circle className="wall-endpoint-handle start" pointerEvents="none" cx={wall.start.x} cy={wall.start.y} r={fontSize * 0.5} /><circle role="button" aria-label="Drag wall end point" className="wall-endpoint-hit" cx={wall.end.x} cy={wall.end.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'end')} /><circle className="wall-endpoint-handle end" pointerEvents="none" cx={wall.end.x} cy={wall.end.y} r={fontSize * 0.5} /><text className="wall-length-label" x={(wall.start.x + wall.end.x) / 2} y={(wall.start.y + wall.end.y) / 2 - fontSize * 0.65} fontSize={fontSize * 0.9} textAnchor="middle">{wallLength(wall).toFixed(2)} m · {wallDrag?.wallId === wall.id ? 'DRAGGING' : exterior ? 'DRAG CORNERS OR EDGE' : 'DRAG EITHER END'}</text></>}</g>;
       })}
-      {architecture.filter((element) => element.kind === 'opening').map((opening) => {
+      {renderedOpenings.map((opening) => {
         const wall = renderedWalls.find((candidate) => candidate.id === opening.wallId);
         if (!wall) return null;
         const length = wallLength(wall);
         const along = (offset: number) => ({ x: wall.start.x + ((wall.end.x - wall.start.x) * offset) / length, y: wall.start.y + ((wall.end.y - wall.start.y) * offset) / length });
         const start = along(opening.offset);
         const end = along(opening.offset + opening.width);
-        return <line key={opening.id} className={`architecture-opening ${opening.openingType}`} x1={start.x} y1={start.y} x2={end.x} y2={end.y} strokeWidth={Math.max(wall.thickness * 1.7, 0.12)} />;
+        if (opening.openingType !== 'door') return <line key={opening.id} className="architecture-opening window" x1={start.x} y1={start.y} x2={end.x} y2={end.y} strokeWidth={Math.max(wall.thickness * 1.7, 0.12)} />;
+        const selectedDoor = selectedOpeningId === opening.id;
+        const center = along(opening.offset + opening.width / 2);
+        const hinge = opening.swing === 'right' ? end : start;
+        const closedEnd = opening.swing === 'right' ? start : end;
+        const normalSign = opening.swingSide === 'out' ? -1 : 1;
+        const tangent = { x: (end.x - start.x) / opening.width, y: (end.y - start.y) / opening.width };
+        const leafEnd = { x: hinge.x - tangent.y * opening.width * normalSign, y: hinge.y + tangent.x * opening.width * normalSign };
+        const control = { x: (closedEnd.x + leafEnd.x) / 2 + (hinge.x - (closedEnd.x + leafEnd.x) / 2) * 0.45, y: (closedEnd.y + leafEnd.y) / 2 + (hinge.y - (closedEnd.y + leafEnd.y) / 2) * 0.45 };
+        return <g key={opening.id} className={`architecture-door ${selectedDoor ? 'selected' : ''} ${doorDrag?.openingId === opening.id ? 'dragging' : ''}`}><line className="door-gap" x1={start.x} y1={start.y} x2={end.x} y2={end.y} strokeWidth={Math.max(wall.thickness * 1.8, 0.13)} /><path className="door-swing" d={`M ${closedEnd.x} ${closedEnd.y} Q ${control.x} ${control.y} ${leafEnd.x} ${leafEnd.y}`} /><line className="door-leaf" x1={hinge.x} y1={hinge.y} x2={leafEnd.x} y2={leafEnd.y} /><line role="button" aria-label="Drag door along wall" className="door-hit-target" x1={start.x} y1={start.y} x2={end.x} y2={end.y} strokeWidth={Math.max(wall.thickness * 5, 0.4)} onPointerDown={(event) => beginDoorDrag(event, opening)} /><circle role="button" aria-label="Select and drag door" className="door-grab-handle" cx={center.x} cy={center.y} r={fontSize * 0.48} onPointerDown={(event) => beginDoorHandleDrag(event, opening)} /></g>;
       })}
       {drawingWall && draftStart && draftEnd && <g className="draft-wall"><line x1={draftStart.x} y1={draftStart.y} x2={draftEnd.x} y2={draftEnd.y} strokeWidth={0.12} /><circle cx={draftStart.x} cy={draftStart.y} r={fontSize * 0.42} /><circle cx={draftEnd.x} cy={draftEnd.y} r={fontSize * 0.42} /><text x={(draftStart.x + draftEnd.x) / 2} y={(draftStart.y + draftEnd.y) / 2 - fontSize * 0.65} fontSize={fontSize * 0.9} textAnchor="middle">{Math.hypot(draftEnd.x - draftStart.x, draftEnd.y - draftStart.y).toFixed(2)} m</text></g>}
     </svg>
