@@ -977,7 +977,7 @@ function FurniturePanel({ selected, onSelect, objects }: { selected: string; onS
         {visible.length === 0 && <div className="empty-furniture-list"><span>＋</span><strong>No furniture yet</strong><p>Add an item from the object library on the right.</p></div>}
         {visible.map((item) => (
           <button key={item.id} className={`furniture-row ${selected === item.id ? 'selected' : ''}`} onClick={() => onSelect(item.id)}>
-            <span className={`furniture-thumb ${furnitureVisualKind(item)}`}><i /></span><span className="furniture-copy"><strong>{item.name}</strong><small>{formatDimensions(item.dimensions)}</small></span><span className="drag-dots">⠿</span>
+            <span className="furniture-icon-frame compact" style={{ display: 'grid', flex: '0 0 38px', width: 38, height: 32, placeItems: 'center' }}><FurnitureGlyph category={item.category} name={item.name} compact /></span><span className="furniture-copy"><strong>{item.name}</strong><small>{formatDimensions(item.dimensions)}</small></span><span className="drag-dots">⠿</span>
           </button>
         ))}
       </div>
@@ -986,14 +986,36 @@ function FurniturePanel({ selected, onSelect, objects }: { selected: string; onS
   );
 }
 
-function furnitureVisualKind(item: SceneObject) {
-  const name = item.name.toLowerCase();
-  if (name.includes('bed')) return 'bed';
-  if (name.includes('sofa')) return 'sofa';
-  if (name.includes('desk')) return 'desk';
-  if (name.includes('table')) return 'table';
-  if (name.includes('dresser')) return 'dresser';
-  return 'custom';
+function FurnitureGlyph({ category, name, compact = false }: { category: string; name: string; compact?: boolean }) {
+  const label = name.toLowerCase();
+  const kind = label.includes('bed') ? 'bed'
+    : label.includes('sofa') ? 'sofa'
+      : label.includes('desk') ? 'desk'
+        : label.includes('dining') ? 'dining'
+          : label.includes('coffee') ? 'coffee'
+            : label.includes('chair') ? 'chair'
+              : label.includes('bookcase') ? 'bookcase'
+                : label.includes('nightstand') ? 'nightstand'
+                  : label.includes('dresser') || category === 'storage' ? 'storage'
+                    : category;
+  const mainStyle = { fill: 'rgba(82,116,136,.07)', stroke: '#527488', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  const detailStyle = { fill: 'none', stroke: '#527488', strokeWidth: 1.05, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  const softStyle = { ...detailStyle, strokeWidth: .75, strokeDasharray: '1.4 1.4', opacity: .58 };
+  const accentStyle = { fill: '#527488', stroke: 'none' };
+  return (
+    <svg className={`furniture-glyph glyph-${kind}`} width={compact ? 34 : 48} height={compact ? 28 : 42} viewBox="0 0 48 36" fill="none" style={{ display: 'block', flex: 'none', overflow: 'visible' }} aria-hidden="true">
+      {kind === 'bed' && <><rect style={mainStyle} x="11" y="5" width="26" height="27" rx="1" /><path style={detailStyle} d="M11 14h26M24 14v18M13.5 8h9v4h-9zM25.5 8h9v4h-9z" /><path style={softStyle} d="M14 18v11M18 18v11M30 18v11M34 18v11" /></>}
+      {kind === 'sofa' && <><rect style={mainStyle} x="7" y="9" width="34" height="20" rx="5" /><rect style={detailStyle} x="12" y="12" width="24" height="13" rx="3" /><path style={mainStyle} d="M12 12v13M36 12v13M24 12v13" /><path style={softStyle} d="M9 30h30" /></>}
+      {kind === 'desk' && <><rect style={mainStyle} x="7" y="7" width="34" height="15" rx="1" /><path style={detailStyle} d="M11 18h26M18 11h12v7H18z" /><rect style={mainStyle} x="18" y="25" width="12" height="7" rx="3" /><path style={softStyle} d="M24 22v3" /></>}
+      {kind === 'dining' && <><ellipse style={mainStyle} cx="24" cy="18" rx="13" ry="9" /><path style={detailStyle} d="M24 9v18M11 18h26" /><rect style={mainStyle} x="20" y="2.5" width="8" height="4" rx="2" /><rect style={mainStyle} x="20" y="29.5" width="8" height="4" rx="2" /><rect style={mainStyle} x="4.5" y="14" width="4" height="8" rx="2" /><rect style={mainStyle} x="39.5" y="14" width="4" height="8" rx="2" /></>}
+      {kind === 'coffee' && <><ellipse style={mainStyle} cx="24" cy="18" rx="16" ry="10" /><ellipse style={detailStyle} cx="24" cy="18" rx="11" ry="6" /><circle style={accentStyle} cx="24" cy="18" r="1.8" /></>}
+      {kind === 'chair' && <><rect style={mainStyle} x="13" y="8" width="22" height="22" rx="6" /><rect style={detailStyle} x="17" y="12" width="14" height="13" rx="4" /><path style={mainStyle} d="M13 13H9v12h4M35 13h4v12h-4M17 30v3M31 30v3" /></>}
+      {kind === 'bookcase' && <><rect style={mainStyle} x="13" y="4" width="22" height="28" /><path style={mainStyle} d="M13 11h22M13 18h22M13 25h22" /><path style={softStyle} d="M17 6v4M22 6v4M29 13v4M18 20v4M26 27v4M31 27v4" /></>}
+      {kind === 'nightstand' && <><rect style={mainStyle} x="14" y="6" width="20" height="25" rx="1" /><path style={mainStyle} d="M14 14h20M14 22h20" /><circle style={accentStyle} cx="24" cy="10" r="1" /><circle style={accentStyle} cx="24" cy="18" r="1" /><circle style={accentStyle} cx="24" cy="26" r="1" /></>}
+      {kind === 'storage' && <><rect style={mainStyle} x="10" y="7" width="28" height="23" rx="1" /><path style={mainStyle} d="M10 14.5h28M10 22h28M24 7v23" /><circle style={accentStyle} cx="21" cy="11" r="1" /><circle style={accentStyle} cx="27" cy="11" r="1" /><circle style={accentStyle} cx="21" cy="18" r="1" /><circle style={accentStyle} cx="27" cy="18" r="1" /></>}
+      {!['bed', 'sofa', 'desk', 'dining', 'coffee', 'chair', 'bookcase', 'nightstand', 'storage'].includes(kind) && <><path style={mainStyle} d="M12 8h24l5 10-5 10H12L7 18z" /><circle style={accentStyle} cx="24" cy="18" r="4" /><path style={detailStyle} d="M24 9v5M24 22v5M15 18h5M28 18h5" /></>}
+    </svg>
+  );
 }
 
 function PlanView({ editMode, architecture, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, selected, onSelect, onSelectWall, onSelectOpening, onSelectRoom, layout, zoom, objects, collisionMessage, statusError, onMove, onCommitMove, onRotate, onDelete, onAddWall, onUpdateWall, onUpdateOpening }: { editMode: EditMode; architecture: ArchitecturalElement[]; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; selected: string; onSelect: (item: string) => void; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; layout: LayoutKey; zoom: number; objects: SceneObject[]; collisionMessage: string; statusError: boolean; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<void>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<boolean>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<boolean> }) {
@@ -1511,7 +1533,7 @@ function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onResize, onCom
     <aside className="add-object-panel">
       <div className="add-object-heading"><span className="eyebrow">OBJECT LIBRARY</span><h2>Add object</h2><p>Choose an object, confirm its size, then place it into a room.</p></div>
       <form onSubmit={submit}>
-        <fieldset><legend>OBJECT TYPE</legend><div className="preset-grid">{objectPresets.map((preset, index) => <button type="button" key={preset.shortLabel} className={presetIndex === index ? 'active' : ''} onClick={() => choosePreset(index)}><i className={`preset-icon preset-${preset.category}`} />{preset.shortLabel}</button>)}</div></fieldset>
+        <fieldset><legend>OBJECT TYPE</legend><div className="preset-grid">{objectPresets.map((preset, index) => <button type="button" key={preset.shortLabel} className={presetIndex === index ? 'active' : ''} onClick={() => choosePreset(index)}><span className="furniture-icon-frame" style={{ display: 'grid', flex: '0 0 42px', width: 48, height: 42, placeItems: 'center' }}><FurnitureGlyph category={preset.category} name={preset.name} /></span>{preset.shortLabel}</button>)}</div></fieldset>
         <label className="field-label">NAME<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label className="field-label">PLACE IN<select value={rooms.some((room) => room.id === roomId) ? roomId : rooms[0]?.id ?? ''} onChange={(event) => setRoomId(event.target.value)}>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
         <DimensionPreview name={selectedObject?.name ?? name} dimensions={activeDimensions} />
