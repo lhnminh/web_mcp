@@ -35,6 +35,11 @@ type ApiProject = {
   scene: SceneDocument;
 };
 
+type HistoryEntry = {
+  before: SceneDocument;
+  after: SceneDocument;
+};
+
 const scores = [
   { label: 'Natural light', score: 88, note: 'Excellent', tone: 'high' },
   { label: 'Furniture fit', score: 92, note: 'All 5 items fit', tone: 'high' },
@@ -73,11 +78,21 @@ export default function Home() {
   const [drawingWall, setDrawingWall] = useState(false);
   const [zoom, setZoom] = useState(80);
   const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 });
+  const [historyBusy, setHistoryBusy] = useState(false);
   const projectRevisionRef = useRef<number | null>(null);
   const projectRef = useRef<ApiProject | null>(null);
   const moveSaveQueue = useRef<Promise<void>>(Promise.resolve());
-  const undoStack = useRef<Array<{ layout: LayoutKey; before: SceneObject; after: SceneObject }>>([]);
-  const redoStack = useRef<Array<{ layout: LayoutKey; before: SceneObject; after: SceneObject }>>([]);
+  const undoStack = useRef<HistoryEntry[]>([]);
+  const redoStack = useRef<HistoryEntry[]>([]);
+
+  const updateHistoryState = () => setHistoryState({ undo: undoStack.current.length, redo: redoStack.current.length });
+
+  const recordSceneEdit = (before: SceneDocument, after: SceneDocument) => {
+    if (JSON.stringify(before) === JSON.stringify(after)) return;
+    undoStack.current.push({ before: structuredClone(before), after: structuredClone(after) });
+    redoStack.current = [];
+    updateHistoryState();
+  };
 
   const syncProject = (project: ApiProject) => {
     const catalog = new Map(project.scene.catalog.map((item) => [item.id, item]));
@@ -104,35 +119,45 @@ export default function Home() {
       .catch(() => setProjectRevision(null));
   }, []);
 
-  const saveScene = async (scene: SceneDocument, successMessage: string) => {
-    const current = projectRef.current;
-    const expectedRevision = projectRevisionRef.current;
-    if (!current || expectedRevision === null) return 'The project is still loading.';
-    setArchitectureMessage('Saving architecture…');
-    try {
-      const response = await fetch(`/api/projects/${current.id}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: current.name, scene, expectedRevision }),
-      });
-      const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
-      if (!response.ok) {
-        if (result.current) syncProject(result.current);
-        const message = result.error ?? 'The architecture could not be saved.';
+  const enqueueMutation = <T,>(mutation: () => Promise<T>) => {
+    const operation = moveSaveQueue.current.then(mutation);
+    moveSaveQueue.current = operation.then(() => undefined, () => undefined);
+    return operation;
+  };
+
+  const saveScene = async (scene: SceneDocument, successMessage: string, options: { recordHistory?: boolean } = {}) => {
+    return enqueueMutation(async () => {
+      const current = projectRef.current;
+      const expectedRevision = projectRevisionRef.current;
+      if (!current || expectedRevision === null) return 'The project is still loading.';
+      setArchitectureMessage('Saving architecture…');
+      try {
+        const response = await fetch(`/api/projects/${current.id}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: current.name, scene, expectedRevision }),
+        });
+        const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
+        if (!response.ok) {
+          if (result.current) syncProject(result.current);
+          const message = result.error ?? 'The architecture could not be saved.';
+          setArchitectureMessage(message);
+          return message;
+        }
+        syncProject(result);
+        if (options.recordHistory !== false) recordSceneEdit(current.scene, result.scene);
+        setArchitectureMessage(successMessage);
+        return null;
+      } catch {
+        const message = 'The architecture could not be saved. Check your connection and try again.';
         setArchitectureMessage(message);
         return message;
       }
-      syncProject(result);
-      setArchitectureMessage(successMessage);
-      return null;
-    } catch {
-      const message = 'The architecture could not be saved. Check your connection and try again.';
-      setArchitectureMessage(message);
-      return message;
-    }
+    });
   };
 
   const resizeApartment = async (width: number, depth: number) => {
+    await moveSaveQueue.current;
     const current = projectRef.current;
     if (!current) return 'The project is still loading.';
     if (![width, depth].every((value) => Number.isFinite(value) && value >= 2 && value <= 30)) {
@@ -144,6 +169,7 @@ export default function Home() {
   };
 
   const addWall = async (start: Point2, end: Point2) => {
+    await moveSaveQueue.current;
     const current = projectRef.current;
     if (!current) return;
     const bounds = getArchitectureBounds(current.scene.architecture);
@@ -169,6 +195,7 @@ export default function Home() {
   };
 
   const updateWall = async (wallId: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => {
+    await moveSaveQueue.current;
     const current = projectRef.current;
     if (!current) return false;
     const wall = current.scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === wallId);
@@ -207,6 +234,7 @@ export default function Home() {
   };
 
   const deleteWall = async (wallId: string) => {
+    await moveSaveQueue.current;
     const current = projectRef.current;
     if (!current) return;
     const bounds = getArchitectureBounds(current.scene.architecture);
@@ -225,6 +253,7 @@ export default function Home() {
   };
 
   const renameRoom = async (roomId: string, name: string) => {
+    await moveSaveQueue.current;
     const current = projectRef.current;
     if (!current || !name.trim()) return;
     const architecture = current.scene.architecture.map((element) => element.kind === 'room' && element.id === roomId ? { ...element, name: name.trim() } : element);
@@ -237,20 +266,27 @@ export default function Home() {
   };
 
   const addObject = async (input: AddObjectInput): Promise<string | null> => {
-    if (projectRevision === null) return 'The project is still loading. Try again in a moment.';
-    const response = await fetch('/api/projects/blank/objects', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...input, layoutId: `layout-${layout.toLowerCase()}`, expectedRevision: projectRevision }),
+    return enqueueMutation(async () => {
+      const current = projectRef.current;
+      const expectedRevision = projectRevisionRef.current;
+      if (!current || expectedRevision === null) return 'The project is still loading. Try again in a moment.';
+      const response = await fetch('/api/projects/blank/objects', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, layoutId: `layout-${layout.toLowerCase()}`, expectedRevision }),
+      });
+      const result = await response.json() as { error?: string; current?: ApiProject; project?: ApiProject; objectId?: string };
+      if (!response.ok) {
+        if (result.current) syncProject(result.current);
+        return result.error ?? 'The object could not be added.';
+      }
+      if (result.project) {
+        syncProject(result.project);
+        recordSceneEdit(current.scene, result.project.scene);
+      }
+      if (result.objectId) setSelected(result.objectId);
+      return null;
     });
-    const result = await response.json() as { error?: string; current?: ApiProject; project?: ApiProject; objectId?: string };
-    if (!response.ok) {
-      if (result.current) syncProject(result.current);
-      return result.error ?? 'The object could not be added.';
-    }
-    if (result.project) syncProject(result.project);
-    if (result.objectId) setSelected(result.objectId);
-    return null;
   };
 
   const moveObject = (objectId: string, placement: { position: { x: number; z: number }; roomId: RoomId }) => {
@@ -275,9 +311,10 @@ export default function Home() {
 
   const saveObjectTransform = (objectId: string, transform: { position?: { x: number; z: number }; rotation?: { y: number }; dimensions?: SceneObject['dimensions']; roomId?: RoomId }, layoutOverride?: LayoutKey) => {
     const layoutAtMove = layoutOverride ?? layout;
-    moveSaveQueue.current = moveSaveQueue.current.then(async () => {
+    void enqueueMutation(async () => {
+      const current = projectRef.current;
       const expectedRevision = projectRevisionRef.current;
-      if (expectedRevision === null) return;
+      if (!current || expectedRevision === null) return;
       const response = await fetch(`/api/projects/blank/objects/${objectId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -285,47 +322,55 @@ export default function Home() {
       });
       const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
       if (response.ok) {
-        projectRevisionRef.current = result.revision;
-        setProjectRevision(result.revision);
+        syncProject(result);
+        recordSceneEdit(current.scene, result.scene);
       } else if (result.current) {
         syncProject(result.current);
+      } else {
+        syncProject(current);
+        setCollisionMessage(result.error ?? 'The object change could not be saved.');
       }
     }).catch(() => undefined);
   };
 
-  const recordEdit = (before: SceneObject, after: SceneObject) => {
-    if (JSON.stringify(before) === JSON.stringify(after)) return;
-    undoStack.current.push({ layout, before, after });
-    redoStack.current = [];
-    setHistoryState({ undo: undoStack.current.length, redo: 0 });
-  };
-
-  const applyHistoryObject = (layoutKey: LayoutKey, object: SceneObject) => {
-    setSelected(object.id);
-    setSceneObjects((current) => ({ ...current, [layoutKey]: current[layoutKey].map((item) => item.id === object.id ? object : item) }));
-    saveObjectTransform(object.id, { position: { x: object.transform.position.x, z: object.transform.position.z }, rotation: { y: object.transform.rotation.y }, dimensions: object.dimensions, roomId: object.roomId }, layoutKey);
+  const applyHistoryScene = async (scene: SceneDocument, message: string) => {
+    const error = await saveScene(structuredClone(scene), message, { recordHistory: false });
+    if (error) return false;
+    setSelected('');
+    setSelectedWallId('');
+    setSelectedRoomId('');
     setCollisionMessage('');
+    return true;
   };
 
-  const undo = () => {
-    const edit = undoStack.current.pop();
-    if (!edit) return;
-    redoStack.current.push(edit);
-    applyHistoryObject(edit.layout, edit.before);
-    setHistoryState({ undo: undoStack.current.length, redo: redoStack.current.length });
+  const undo = async () => {
+    if (historyBusy) return;
+    setHistoryBusy(true);
+    await moveSaveQueue.current;
+    const edit = undoStack.current.at(-1);
+    if (edit && await applyHistoryScene(edit.before, 'Undid last change.')) {
+      undoStack.current.pop();
+      redoStack.current.push(edit);
+      updateHistoryState();
+    }
+    setHistoryBusy(false);
   };
 
-  const redo = () => {
-    const edit = redoStack.current.pop();
-    if (!edit) return;
-    undoStack.current.push(edit);
-    applyHistoryObject(edit.layout, edit.after);
-    setHistoryState({ undo: undoStack.current.length, redo: redoStack.current.length });
+  const redo = async () => {
+    if (historyBusy) return;
+    setHistoryBusy(true);
+    await moveSaveQueue.current;
+    const edit = redoStack.current.at(-1);
+    if (edit && await applyHistoryScene(edit.after, 'Redid last change.')) {
+      redoStack.current.pop();
+      undoStack.current.push(edit);
+      updateHistoryState();
+    }
+    setHistoryBusy(false);
   };
 
   const commitMove = (objectId: string, placement: ObjectPlacement, before: SceneObject) => {
-    const after = { ...before, roomId: placement.roomId, transform: { ...before.transform, position: { ...before.transform.position, ...placement.position } } };
-    recordEdit(before, after);
+    void before;
     saveObjectTransform(objectId, { position: placement.position, roomId: placement.roomId });
   };
 
@@ -344,25 +389,28 @@ export default function Home() {
     }
     setCollisionMessage('');
     setSceneObjects((current) => ({ ...current, [layout]: current[layout].map((object) => object.id === objectId ? candidate : object) }));
-    recordEdit(item, candidate);
     saveObjectTransform(objectId, { position, rotation });
   };
 
   const removeObject = async (objectId: string) => {
-    const expectedRevision = projectRevisionRef.current;
-    if (expectedRevision === null) return;
-    const response = await fetch(`/api/projects/blank/objects/${objectId}`, {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ layoutId: `layout-${layout.toLowerCase()}`, expectedRevision }),
+    await enqueueMutation(async () => {
+      const current = projectRef.current;
+      const expectedRevision = projectRevisionRef.current;
+      if (!current || expectedRevision === null) return;
+      const response = await fetch(`/api/projects/blank/objects/${objectId}`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ layoutId: `layout-${layout.toLowerCase()}`, expectedRevision }),
+      });
+      const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
+      if (response.ok) {
+        syncProject(result);
+        recordSceneEdit(current.scene, result.scene);
+        setSelected('');
+        setCollisionMessage('');
+      } else if (result.current) syncProject(result.current);
+      else setCollisionMessage(result.error ?? 'The object could not be removed.');
     });
-    const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
-    if (response.ok) {
-      syncProject(result);
-      setSelected('');
-      setCollisionMessage('');
-    } else if (result.current) syncProject(result.current);
-    else setCollisionMessage(result.error ?? 'The object could not be removed.');
   };
 
   const resizeObject = (objectId: string, dimensions: SceneObject['dimensions']) => {
@@ -383,9 +431,9 @@ export default function Home() {
   };
 
   const saveObjectDimensions = (objectId: string, dimensions: SceneObject['dimensions'], beforeDimensions: SceneObject['dimensions']) => {
+    void beforeDimensions;
     const item = sceneObjects[layout].find((candidate) => candidate.id === objectId);
     if (!item) return;
-    recordEdit({ ...item, dimensions: beforeDimensions }, item);
     saveObjectTransform(objectId, { position: { x: item.transform.position.x, z: item.transform.position.z }, dimensions });
   };
 
@@ -396,7 +444,7 @@ export default function Home() {
   return (
     <main className="app-shell">
       <Header />
-      <ModeBar view={view} compare={compare} editMode={editMode} zoom={zoom} canUndo={historyState.undo > 0} canRedo={historyState.redo > 0} onUndo={undo} onRedo={redo} onZoom={setZoom} onView={selectView} onEditMode={setEditMode} />
+      <ModeBar view={view} compare={compare} editMode={editMode} zoom={zoom} canUndo={!historyBusy && historyState.undo > 0} canRedo={!historyBusy && historyState.redo > 0} onUndo={undo} onRedo={redo} onZoom={setZoom} onView={selectView} onEditMode={setEditMode} />
       <div className={`workspace-grid ${compare ? 'is-comparing' : ''} ${view === 'plan' && !compare ? 'plan-builder-grid' : ''}`}>
         {compare ? (
           <ComparisonView onBack={() => setCompare(false)} />
@@ -448,7 +496,7 @@ function ModeBar({ view, compare, editMode, zoom, canUndo, canRedo, onUndo, onRe
       {compare ? (
         <div className="comparison-mode-title"><span className="split-icon" /> SIDE-BY-SIDE DECISION</div>
       ) : view === 'plan' ? (
-        <div className="plan-tools"><button aria-label="Undo last furniture edit" onClick={onUndo} disabled={!canUndo}>↶</button><button aria-label="Redo furniture edit" onClick={onRedo} disabled={!canRedo}>↷</button><span /><button aria-label="Zoom out" onClick={() => onZoom(Math.max(50, zoom - 5))} disabled={zoom <= 50}>−</button><strong>{zoom}%</strong><button aria-label="Zoom in" onClick={() => onZoom(Math.min(120, zoom + 5))} disabled={zoom >= 120}>+</button></div>
+        <div className="plan-tools"><button aria-label="Undo last change" onClick={onUndo} disabled={!canUndo}>↶</button><button aria-label="Redo last change" onClick={onRedo} disabled={!canRedo}>↷</button><span /><button aria-label="Zoom out" onClick={() => onZoom(Math.max(50, zoom - 5))} disabled={zoom <= 50}>−</button><strong>{zoom}%</strong><button aria-label="Zoom in" onClick={() => onZoom(Math.min(120, zoom + 5))} disabled={zoom >= 120}>+</button></div>
       ) : view === 'three' ? (
         <div className="view-context">LIVE SUN STUDY · MAY 12</div>
       ) : (
