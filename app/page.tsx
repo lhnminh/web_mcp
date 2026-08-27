@@ -101,8 +101,8 @@ export default function ProjectsDashboard() {
       setProjects((current) => current.map((item) => item.id === project.id ? result : item).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
       setRenamingId('');
     } catch (renameError) {
-      setError(renameError instanceof Error ? renameError.message : 'The project could not be renamed.');
       await loadProjects();
+      setError(renameError instanceof Error ? renameError.message : 'The project could not be renamed.');
     } finally {
       setBusyId('');
     }

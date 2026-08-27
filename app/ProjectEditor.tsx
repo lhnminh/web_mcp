@@ -4,6 +4,7 @@ import { FormEvent, KeyboardEvent, PointerEvent, ReactNode, useEffect, useRef, u
 import Link from 'next/link';
 import type { ArchitecturalElement, OpeningElement, Point2, RoomElement, SceneDocument, WallElement } from '@/lib/domain/scene';
 import { getArchitectureBounds, isExteriorWall, isRectangularRoom, pointInRoom, polygonArea, polygonCentroid, rebuildSceneRooms, resizeSceneFootprint, roomForPoint, wallLength } from '@/lib/domain/architecture';
+import { blankApartmentScene } from '@/lib/domain/demo-scene';
 import ApartmentScene from './ApartmentScene';
 
 type View = 'plan' | 'three' | 'evaluation';
@@ -56,6 +57,18 @@ const timeLabel = (hour: number) => {
   const display = whole % 12 || 12;
   return `${display}:${minute.toString().padStart(2, '0')} ${suffix}`;
 };
+
+function resizeApartmentScene(scene: SceneDocument, width: number, depth: number, height: number) {
+  const resized = resizeSceneFootprint(scene, width, depth);
+  return {
+    ...resized,
+    architecture: resized.architecture.map((element): ArchitecturalElement => {
+      if (element.kind === 'wall') return { ...element, height };
+      if (element.kind === 'room') return { ...element, ceilingHeight: height };
+      return element;
+    }),
+  };
+}
 
 const samePoint = (a: Point2, b: Point2, tolerance = 0.015) => Math.hypot(a.x - b.x, a.y - b.y) <= tolerance;
 const geometryPointKey = (point: Point2) => `${Math.round(point.x * 100)},${Math.round(point.y * 100)}`;
@@ -124,9 +137,11 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   const [selectedOpeningId, setSelectedOpeningId] = useState('');
   const [selectedRoomId, setSelectedRoomId] = useState('');
   const [drawingWall, setDrawingWall] = useState(false);
+  const [architecturePreview, setArchitecturePreview] = useState<ArchitecturalElement[] | null>(null);
   const [zoom, setZoom] = useState(80);
   const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 });
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const projectRevisionRef = useRef<number | null>(null);
   const projectRef = useRef<ApiProject | null>(null);
   const moveSaveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -197,6 +212,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
           return message;
         }
         syncProject(result);
+        setArchitecturePreview(null);
         if (options.recordHistory !== false) recordSceneEdit(current.scene, result.scene);
         setArchitectureMessage(successMessage);
         return null;
@@ -208,16 +224,18 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     });
   };
 
-  const resizeApartment = async (width: number, depth: number) => {
+  const resizeApartment = async (width: number, depth: number, height: number) => {
     await moveSaveQueue.current;
     const current = projectRef.current;
     if (!current) return 'The project is still loading.';
-    if (![width, depth].every((value) => Number.isFinite(value) && value >= 2 && value <= 30)) {
-      const message = 'Width and depth must be between 2 and 30 meters.';
+    if (![width, depth].every((value) => Number.isFinite(value) && value >= 2 && value <= 30) || !Number.isFinite(height) || height < 1.8 || height > 6) {
+      const message = 'Width and depth must be between 2 and 30 meters, and height between 1.8 and 6 meters.';
       setArchitectureMessage(message);
       return message;
     }
-    return saveScene(rebuildSceneRooms(resizeSceneFootprint(current.scene, width, depth)), `Apartment resized to ${width.toFixed(2)} × ${depth.toFixed(2)} m.`);
+    const error = await saveScene(rebuildSceneRooms(resizeApartmentScene(current.scene, width, depth, height)), `Apartment resized to ${width.toFixed(2)} × ${depth.toFixed(2)} × ${height.toFixed(2)} m.`);
+    if (!error) setArchitecturePreview(null);
+    return error;
   };
 
   const addWall = async (start: Point2, end: Point2) => {
@@ -306,6 +324,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     const outsideFurniture = rebuilt.layouts.flatMap((sceneLayout) => sceneLayout.elements).filter((element) => !rebuiltRooms.some((room) => pointInRoom({ x: element.transform.position.x, y: element.transform.position.z }, room))).length;
     const successMessage = exterior && geometryChanged ? `Exterior shape updated${outsideFurniture ? ` · ${outsideFurniture} furniture item${outsideFurniture === 1 ? '' : 's'} outside the footprint` : ''}.` : 'Wall updated.';
     const error = await saveScene(rebuilt, successMessage);
+    if (!error) setArchitecturePreview(null);
     return !error;
   };
 
@@ -564,7 +583,9 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     if (error) return false;
     setSelected('');
     setSelectedWallId('');
+    setSelectedOpeningId('');
     setSelectedRoomId('');
+    setArchitecturePreview(null);
     setCollisionMessage('');
     return true;
   };
@@ -593,6 +614,36 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       updateHistoryState();
     }
     setHistoryBusy(false);
+  };
+
+  const resetEverything = async () => {
+    if (resetting || !window.confirm('Reset the entire apartment? This removes all furniture, doors, rooms, and custom changes, and cannot be undone.')) return;
+    setResetting(true);
+    await moveSaveQueue.current;
+    const error = await saveScene(structuredClone(blankApartmentScene), 'Everything reset · start again from the blank apartment.', { recordHistory: false });
+    if (!error) {
+      undoStack.current = [];
+      redoStack.current = [];
+      updateHistoryState();
+      setSelected('');
+      setSelectedWallId('');
+      setSelectedOpeningId('');
+      setSelectedRoomId('');
+      setDrawingWall(false);
+      setArchitecturePreview(null);
+      setCollisionMessage('');
+      setCompare(false);
+      setView('plan');
+      setEditMode('architecture');
+      setZoom(80);
+      setHour(14.5);
+      setCamera(0);
+      setCameraReset((value) => value + 1);
+      setShowShadows(true);
+      setShowLightPaths(true);
+      setShowMeasurements(false);
+    }
+    setResetting(false);
   };
 
   const commitMove = (objectId: string, placement: ObjectPlacement, before: SceneObject) => {
@@ -664,10 +715,46 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   };
 
   const architecture = project?.scene.architecture ?? [];
+  const displayedArchitecture = architecturePreview ?? architecture;
   const rooms = architecture.filter((element): element is RoomElement => element.kind === 'room');
   const selectedWall = architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === selectedWallId);
   const selectedOpening = architecture.find((element): element is OpeningElement => element.kind === 'opening' && element.id === selectedOpeningId);
-  const architectureSuccess = /^(Saving architecture|Wall added|Wall updated|Wall removed|Exterior shape updated|Exterior corner added|Exterior corner removed|Door added|Door updated|Door removed|Room renamed|Apartment resized)/.test(architectureMessage) && !architectureMessage.includes('outside the footprint');
+  const previewApartment = (width: number, depth: number, height: number) => {
+    const current = projectRef.current;
+    if (!current) return;
+    setArchitecturePreview(resizeApartmentScene(current.scene, width, depth, height).architecture);
+  };
+  const previewWall = (wallId: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => {
+    const current = projectRef.current;
+    if (!current) return;
+    const bounds = getArchitectureBounds(current.scene.architecture);
+    const walls = current.scene.architecture.filter((element): element is WallElement => element.kind === 'wall');
+    const wall = walls.find((candidate) => candidate.id === wallId);
+    if (!wall) return;
+    const nextWall = { ...wall, ...patch };
+    const exterior = isExteriorWall(wall, bounds, current.scene.architecture);
+    const movedCorners = exterior ? [
+      ...(samePoint(wall.start, nextWall.start) ? [] : [{ before: wall.start, after: nextWall.start }]),
+      ...(samePoint(wall.end, nextWall.end) ? [] : [{ before: wall.end, after: nextWall.end }]),
+    ] : [];
+    const nextWalls = new Map(walls.map((candidate) => {
+      if (candidate.id === wallId) return [candidate.id, nextWall] as const;
+      const movedStart = movedCorners.find((corner) => samePoint(candidate.start, corner.before));
+      const movedEnd = movedCorners.find((corner) => samePoint(candidate.end, corner.before));
+      return [candidate.id, movedStart || movedEnd ? { ...candidate, start: movedStart?.after ?? candidate.start, end: movedEnd?.after ?? candidate.end } : candidate] as const;
+    }));
+    const nextArchitecture = current.scene.architecture.map((element) => element.kind === 'wall' ? nextWalls.get(element.id) ?? element : element);
+    setArchitecturePreview(rebuildSceneRooms({ ...current.scene, architecture: nextArchitecture }).architecture);
+  };
+  const previewOpening = (openingId: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'swing' | 'swingSide'>>) => {
+    const current = projectRef.current;
+    if (!current) return;
+    setArchitecturePreview(current.scene.architecture.map((element) => element.kind === 'opening' && element.id === openingId ? { ...element, ...patch } : element));
+  };
+  const selectWall = (id: string) => { setArchitecturePreview(null); setSelectedWallId(id); setSelectedOpeningId(''); setSelectedRoomId(''); setDrawingWall(false); };
+  const selectOpening = (id: string, wallId: string) => { setArchitecturePreview(null); setSelectedOpeningId(id); setSelectedWallId(wallId); setSelectedRoomId(''); setDrawingWall(false); };
+  const selectRoom = (id: string) => { setArchitecturePreview(null); setSelectedRoomId(id); setSelectedWallId(''); setSelectedOpeningId(''); setDrawingWall(false); };
+  const architectureSuccess = /^(Saving architecture|Wall added|Wall updated|Wall removed|Exterior shape updated|Exterior corner added|Exterior corner removed|Door added|Door updated|Door removed|Room renamed|Apartment resized|Everything reset)/.test(architectureMessage) && !architectureMessage.includes('outside the footprint');
 
   if (projectLoadError) {
     return (
@@ -684,30 +771,30 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
 
   return (
     <main className="app-shell">
-      <Header key={project.id} projectName={project.name} onRename={renameProject} />
-      <ModeBar view={view} compare={compare} editMode={editMode} zoom={zoom} canUndo={!historyBusy && historyState.undo > 0} canRedo={!historyBusy && historyState.redo > 0} onUndo={undo} onRedo={redo} onZoom={setZoom} onView={selectView} onEditMode={setEditMode} />
+      <Header key={project.id} projectName={project.name} onRename={renameProject} resetting={resetting} onReset={resetEverything} />
+      <ModeBar view={view} compare={compare} editMode={editMode} zoom={zoom} canUndo={!historyBusy && historyState.undo > 0} canRedo={!historyBusy && historyState.redo > 0} onUndo={undo} onRedo={redo} onZoom={setZoom} onView={selectView} onEditMode={(mode) => { setArchitecturePreview(null); setEditMode(mode); }} />
       <div className={`workspace-grid ${compare ? 'is-comparing' : ''} ${view === 'plan' && !compare ? 'plan-builder-grid' : ''}`}>
         {compare ? (
           <ComparisonView onBack={() => setCompare(false)} />
         ) : (
           <>
             {view === 'plan' && editMode === 'furnish' && <FurniturePanel selected={selected} onSelect={setSelected} objects={sceneObjects[layout]} />}
-            {view === 'plan' && editMode === 'architecture' && <ArchitecturePanel architecture={architecture} selectedWallId={selectedWallId} selectedRoomId={selectedRoomId} onSelectWall={(id) => { setSelectedWallId(id); setSelectedOpeningId(''); setSelectedRoomId(''); setDrawingWall(false); }} onSelectRoom={(id) => { setSelectedRoomId(id); setSelectedWallId(''); setSelectedOpeningId(''); setDrawingWall(false); }} onRenameRoom={renameRoom} />}
+            {view === 'plan' && editMode === 'architecture' && <ArchitecturePanel architecture={displayedArchitecture} selectedWallId={selectedWallId} selectedRoomId={selectedRoomId} onSelectWall={selectWall} onSelectRoom={selectRoom} onRenameRoom={renameRoom} />}
             {view === 'three' && <PreviewControls hour={hour} camera={camera} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} onHour={setHour} onCamera={setCamera} onReset={() => setCameraReset((value) => value + 1)} onShadows={setShowShadows} onLightPaths={setShowLightPaths} onMeasurements={setShowMeasurements} />}
             {view === 'evaluation' && <PriorityPanel />}
-            {view === 'plan' && <PlanView editMode={editMode} architecture={architecture} selectedWallId={selectedWallId} selectedOpeningId={selectedOpeningId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} selected={selected} onSelect={setSelected} onSelectWall={(id) => { setSelectedWallId(id); setSelectedOpeningId(''); setSelectedRoomId(''); setDrawingWall(false); }} onSelectOpening={(id, wallId) => { setSelectedOpeningId(id); setSelectedWallId(wallId); setSelectedRoomId(''); setDrawingWall(false); }} onSelectRoom={(id) => { setSelectedRoomId(id); setSelectedWallId(''); setSelectedOpeningId(''); setDrawingWall(false); }} layout={layout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={editMode === 'architecture' ? architectureMessage : collisionMessage} statusError={editMode === 'architecture' ? Boolean(architectureMessage) && !architectureSuccess : Boolean(collisionMessage)} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} onAddWall={addWall} onUpdateWall={updateWall} onUpdateOpening={updateOpening} />}
-            {view === 'three' && <ThreeDView hour={hour} camera={camera} cameraReset={cameraReset} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} objects={sceneObjects[layout]} architecture={architecture} />}
+            {view === 'plan' && <PlanView editMode={editMode} architecture={displayedArchitecture} selectedWallId={selectedWallId} selectedOpeningId={selectedOpeningId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} selected={selected} onSelect={setSelected} onSelectWall={selectWall} onSelectOpening={selectOpening} onSelectRoom={selectRoom} layout={layout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={editMode === 'architecture' ? architectureMessage : collisionMessage} statusError={editMode === 'architecture' ? Boolean(architectureMessage) && !architectureSuccess : Boolean(collisionMessage)} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} onAddWall={addWall} onUpdateWall={updateWall} onUpdateOpening={updateOpening} />}
+            {view === 'three' && <ThreeDView hour={hour} camera={camera} cameraReset={cameraReset} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} objects={sceneObjects[layout]} architecture={displayedArchitecture} />}
             {view === 'evaluation' && <EvaluationView />}
           </>
         )}
         {view === 'plan' && !compare && editMode === 'furnish' && <AddObjectPanel rooms={rooms} loading={projectRevision === null} onAdd={addObject} selectedObject={sceneObjects[layout].find((item) => item.id === selected)} onResize={resizeObject} onCommitResize={saveObjectDimensions} />}
-        {view === 'plan' && !compare && editMode === 'architecture' && <ArchitecturePropertiesPanel key={`${selectedOpening?.id ?? selectedWall?.id ?? 'apartment'}-${projectRevision}`} architecture={architecture} selectedWall={selectedWall} selectedOpening={selectedOpening} drawingWall={drawingWall} loading={projectRevision === null} onDrawingWall={(drawing) => { setDrawingWall(drawing); if (drawing) { setSelectedWallId(''); setSelectedOpeningId(''); setSelectedRoomId(''); } }} onResizeApartment={resizeApartment} onUpdateWall={updateWall} onDeleteWall={deleteWall} onAddExteriorCorner={addExteriorCorner} onRemoveExteriorCorner={removeExteriorCorner} onAddDoor={addDoor} onUpdateOpening={updateOpening} onDeleteOpening={deleteOpening} onCloseOpening={() => setSelectedOpeningId('')} />}
+        {view === 'plan' && !compare && editMode === 'architecture' && <ArchitecturePropertiesPanel key={`${selectedOpening?.id ?? selectedWall?.id ?? 'apartment'}-${projectRevision}`} architecture={architecture} selectedWall={selectedWall} selectedOpening={selectedOpening} drawingWall={drawingWall} loading={projectRevision === null} onDrawingWall={(drawing) => { setArchitecturePreview(null); setDrawingWall(drawing); if (drawing) { setSelectedWallId(''); setSelectedOpeningId(''); setSelectedRoomId(''); } }} onPreviewApartment={previewApartment} onPreviewWall={previewWall} onPreviewOpening={previewOpening} onResizeApartment={resizeApartment} onUpdateWall={updateWall} onDeleteWall={deleteWall} onAddExteriorCorner={addExteriorCorner} onRemoveExteriorCorner={removeExteriorCorner} onAddDoor={addDoor} onUpdateOpening={updateOpening} onDeleteOpening={deleteOpening} onCloseOpening={() => { setArchitecturePreview(null); setSelectedOpeningId(''); }} />}
       </div>
     </main>
   );
 }
 
-function Header({ projectName, onRename }: { projectName: string; onRename: (name: string) => Promise<string | null> }) {
+function Header({ projectName, onRename, resetting, onReset }: { projectName: string; onRename: (name: string) => Promise<string | null>; resetting: boolean; onReset: () => void }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(projectName);
   const [saving, setSaving] = useState(false);
@@ -750,6 +837,7 @@ function Header({ projectName, onRename }: { projectName: string; onRename: (nam
       </div>
       <div className="top-actions">
         <span className="saved"><i /> Saved just now</span>
+        <button className="reset-everything-button" onClick={onReset} disabled={resetting}>{resetting ? 'Resetting…' : '↺ Reset everything'}</button>
         {/* Comparison is temporarily hidden while the hackathon demo focuses on 2D, 3D, and sunlight. */}
         <button className="avatar" aria-label="Browser profile">BR</button>
       </div>
@@ -824,33 +912,62 @@ function RoomNameEditor({ room, edgeLengths, onRenameRoom }: { room: RoomElement
   return <form className="room-name-editor" onSubmit={submit}><label>ROOM NAME<input value={name} onChange={(event) => setName(event.target.value)} maxLength={40} /></label>{!isRectangularRoom(room) && <div className="room-edge-lengths"><span>EDGE LENGTHS</span><p>{edgeLengths.map((length, index) => <b key={index}>{index + 1} · {length.toFixed(2)} m</b>)}</p></div>}<button disabled={saving || !name.trim() || name.trim() === room.name}>{saving ? 'Saving…' : 'Save name'}</button></form>;
 }
 
-function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpening, drawingWall, loading, onDrawingWall, onResizeApartment, onUpdateWall, onDeleteWall, onAddExteriorCorner, onRemoveExteriorCorner, onAddDoor, onUpdateOpening, onDeleteOpening, onCloseOpening }: { architecture: ArchitecturalElement[]; selectedWall?: WallElement; selectedOpening?: OpeningElement; drawingWall: boolean; loading: boolean; onDrawingWall: (drawing: boolean) => void; onResizeApartment: (width: number, depth: number) => Promise<string | null>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => Promise<boolean>; onDeleteWall: (id: string) => Promise<void>; onAddExteriorCorner: (id: string) => Promise<void>; onRemoveExteriorCorner: (id: string, endpoint: WallEndpoint) => Promise<void>; onAddDoor: (wallId: string) => Promise<void>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'swing' | 'swingSide'>>) => Promise<boolean>; onDeleteOpening: (id: string) => Promise<void>; onCloseOpening: () => void }) {
+function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpening, drawingWall, loading, onDrawingWall, onPreviewApartment, onPreviewWall, onPreviewOpening, onResizeApartment, onUpdateWall, onDeleteWall, onAddExteriorCorner, onRemoveExteriorCorner, onAddDoor, onUpdateOpening, onDeleteOpening, onCloseOpening }: { architecture: ArchitecturalElement[]; selectedWall?: WallElement; selectedOpening?: OpeningElement; drawingWall: boolean; loading: boolean; onDrawingWall: (drawing: boolean) => void; onPreviewApartment: (width: number, depth: number, height: number) => void; onPreviewWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => void; onPreviewOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'swing' | 'swingSide'>>) => void; onResizeApartment: (width: number, depth: number, height: number) => Promise<string | null>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => Promise<boolean>; onDeleteWall: (id: string) => Promise<void>; onAddExteriorCorner: (id: string) => Promise<void>; onRemoveExteriorCorner: (id: string, endpoint: WallEndpoint) => Promise<void>; onAddDoor: (wallId: string) => Promise<void>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'swing' | 'swingSide'>>) => Promise<boolean>; onDeleteOpening: (id: string) => Promise<void>; onCloseOpening: () => void }) {
   const bounds = getArchitectureBounds(architecture);
+  const walls = architecture.filter((element): element is WallElement => element.kind === 'wall');
   const [width, setWidth] = useState(bounds.width);
   const [depth, setDepth] = useState(bounds.depth);
+  const [height, setHeight] = useState(() => walls[0]?.height ?? 2.74);
   const [saving, setSaving] = useState(false);
   const [wallValues, setWallValues] = useState(() => selectedWall ? { length: wallLength(selectedWall), thickness: selectedWall.thickness, height: selectedWall.height } : { length: 0, thickness: 0.12, height: 2.74 });
   const [doorValues, setDoorValues] = useState(() => selectedOpening ? { offset: selectedOpening.offset, width: selectedOpening.width, height: selectedOpening.height, swing: selectedOpening.swing ?? 'left', swingSide: selectedOpening.swingSide ?? 'in' } : { offset: 0.1, width: 0.91, height: 2.03, swing: 'left' as const, swingSide: 'in' as const });
   const exterior = selectedWall ? isExteriorWall(selectedWall, bounds, architecture) : false;
 
+  const changeApartmentValue = (key: 'width' | 'depth' | 'height', value: number) => {
+    const next = { width, depth, height, [key]: value };
+    setWidth(next.width);
+    setDepth(next.depth);
+    setHeight(next.height);
+    onPreviewApartment(next.width, next.depth, next.height);
+  };
+
+  const wallPatch = (values: typeof wallValues) => {
+    if (!selectedWall) return {};
+    const scale = values.length / wallLength(selectedWall);
+    return {
+      end: {
+        x: selectedWall.start.x + (selectedWall.end.x - selectedWall.start.x) * scale,
+        y: selectedWall.start.y + (selectedWall.end.y - selectedWall.start.y) * scale,
+      },
+      thickness: values.thickness,
+      height: values.height,
+    };
+  };
+
+  const changeWallValue = (key: keyof typeof wallValues, value: number) => {
+    const next = { ...wallValues, [key]: value };
+    setWallValues(next);
+    if (selectedWall) onPreviewWall(selectedWall.id, wallPatch(next));
+  };
+
+  const changeDoorValues = (patch: Partial<typeof doorValues>) => {
+    const next = { ...doorValues, ...patch };
+    setDoorValues(next);
+    if (selectedOpening) onPreviewOpening(selectedOpening.id, next);
+  };
+
   const resize = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
-    await onResizeApartment(width, depth);
+    await onResizeApartment(width, depth, height);
     setSaving(false);
   };
 
   const saveWall = async (event: FormEvent) => {
     event.preventDefault();
     if (!selectedWall) return;
-    const currentLength = wallLength(selectedWall);
-    const scale = wallValues.length / currentLength;
-    const resizedEnd = {
-      x: selectedWall.start.x + (selectedWall.end.x - selectedWall.start.x) * scale,
-      y: selectedWall.start.y + (selectedWall.end.y - selectedWall.start.y) * scale,
-    };
     setSaving(true);
-    await onUpdateWall(selectedWall.id, { end: resizedEnd, thickness: wallValues.thickness, height: wallValues.height });
+    await onUpdateWall(selectedWall.id, wallPatch(wallValues));
     setSaving(false);
   };
 
@@ -864,8 +981,21 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
 
   const heading = selectedOpening ? 'Door properties' : selectedWall ? 'Wall properties' : drawingWall ? 'Add interior wall' : 'Apartment size';
   const description = selectedOpening ? 'Drag the door along its wall or enter exact dimensions and swing below.'
-    : selectedWall ? exterior ? 'Drag either corner or the highlighted edge to reshape the exterior perimeter.' : 'Drag either endpoint in the plan, or enter exact dimensions below.'
+    : selectedWall ? exterior ? 'Drag either corner or the highlighted edge to reshape the exterior perimeter.' : 'Drag the wall or either endpoint in the plan, or enter exact dimensions below.'
       : drawingWall ? 'Choose a start point and an end point directly on the plan.' : 'Resize the full plan or start drawing a new interior wall.';
+
+  const safePreviewWidth = Math.max(width, 0.1);
+  const safePreviewDepth = Math.max(depth, 0.1);
+  const previewScale = Math.min(132 / safePreviewWidth, 88 / safePreviewDepth);
+  const previewWidth = safePreviewWidth * previewScale;
+  const previewDepth = safePreviewDepth * previewScale;
+  const previewRise = 5 + ((height - 1.8) / 4.2) * 16;
+  const previewStyle = {
+    width: `${previewWidth}px`,
+    height: `${previewDepth}px`,
+    boxShadow: `${previewRise}px ${-previewRise}px 0 rgba(49,90,114,.24)`,
+    transform: `translate(${-previewRise / 2}px, ${previewRise / 2}px)`,
+  };
 
   return (
     <aside className="add-object-panel architecture-properties">
@@ -874,23 +1004,23 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
         <form onSubmit={saveDoor}>
           <button type="button" className="back-to-wall-button" onClick={onCloseOpening}>← Back to wall</button>
           <div className="selected-wall-badge"><span>DOOR · {exterior ? 'EXTERIOR' : 'INTERIOR'} WALL</span><strong>{selectedOpening.id}</strong></div>
-          <label className="dimension-control"><span>POSITION FROM START · METERS</span><div><input aria-label="Door position slider" type="range" min="0.1" max={Math.max(0.1, wallLength(selectedWall) - doorValues.width - 0.1)} step="0.01" value={doorValues.offset} onChange={(event) => setDoorValues((current) => ({ ...current, offset: Number(event.target.value) }))} /><input aria-label="Exact door position" type="number" min="0.1" max={Math.max(0.1, wallLength(selectedWall) - doorValues.width - 0.1)} step="0.01" value={doorValues.offset} onChange={(event) => setDoorValues((current) => ({ ...current, offset: Number(event.target.value) }))} /></div></label>
-          <label className="dimension-control"><span>WIDTH · METERS</span><div><input aria-label="Door width slider" type="range" min="0.5" max="3" step="0.01" value={doorValues.width} onChange={(event) => setDoorValues((current) => ({ ...current, width: Number(event.target.value) }))} /><input aria-label="Exact door width" type="number" min="0.5" max="3" step="0.01" value={doorValues.width} onChange={(event) => setDoorValues((current) => ({ ...current, width: Number(event.target.value) }))} /></div></label>
-          <label className="dimension-control"><span>HEIGHT · METERS</span><div><input aria-label="Door height slider" type="range" min="1.8" max={selectedWall.height} step="0.01" value={doorValues.height} onChange={(event) => setDoorValues((current) => ({ ...current, height: Number(event.target.value) }))} /><input aria-label="Exact door height" type="number" min="1.8" max={selectedWall.height} step="0.01" value={doorValues.height} onChange={(event) => setDoorValues((current) => ({ ...current, height: Number(event.target.value) }))} /></div></label>
-          <fieldset className="door-toggle"><legend>HINGE SIDE</legend><button type="button" className={doorValues.swing === 'left' ? 'active' : ''} onClick={() => setDoorValues((current) => ({ ...current, swing: 'left' }))}>Left</button><button type="button" className={doorValues.swing === 'right' ? 'active' : ''} onClick={() => setDoorValues((current) => ({ ...current, swing: 'right' }))}>Right</button></fieldset>
-          <fieldset className="door-toggle"><legend>SWING DIRECTION</legend><button type="button" className={doorValues.swingSide === 'in' ? 'active' : ''} onClick={() => setDoorValues((current) => ({ ...current, swingSide: 'in' }))}>Inward</button><button type="button" className={doorValues.swingSide === 'out' ? 'active' : ''} onClick={() => setDoorValues((current) => ({ ...current, swingSide: 'out' }))}>Outward</button></fieldset>
+          <label className="dimension-control"><span>POSITION FROM START · METERS</span><div><input aria-label="Door position slider" type="range" min="0.1" max={Math.max(0.1, wallLength(selectedWall) - doorValues.width - 0.1)} step="0.01" value={doorValues.offset} onChange={(event) => changeDoorValues({ offset: Number(event.target.value) })} /><input aria-label="Exact door position" type="number" min="0.1" max={Math.max(0.1, wallLength(selectedWall) - doorValues.width - 0.1)} step="0.01" value={doorValues.offset} onChange={(event) => changeDoorValues({ offset: Number(event.target.value) })} /></div></label>
+          <label className="dimension-control"><span>WIDTH · METERS</span><div><input aria-label="Door width slider" type="range" min="0.5" max="3" step="0.01" value={doorValues.width} onChange={(event) => changeDoorValues({ width: Number(event.target.value) })} /><input aria-label="Exact door width" type="number" min="0.5" max="3" step="0.01" value={doorValues.width} onChange={(event) => changeDoorValues({ width: Number(event.target.value) })} /></div></label>
+          <label className="dimension-control"><span>HEIGHT · METERS</span><div><input aria-label="Door height slider" type="range" min="1.8" max={selectedWall.height} step="0.01" value={doorValues.height} onChange={(event) => changeDoorValues({ height: Number(event.target.value) })} /><input aria-label="Exact door height" type="number" min="1.8" max={selectedWall.height} step="0.01" value={doorValues.height} onChange={(event) => changeDoorValues({ height: Number(event.target.value) })} /></div></label>
+          <fieldset className="door-toggle"><legend>HINGE SIDE</legend><button type="button" className={doorValues.swing === 'left' ? 'active' : ''} onClick={() => changeDoorValues({ swing: 'left' })}>Left</button><button type="button" className={doorValues.swing === 'right' ? 'active' : ''} onClick={() => changeDoorValues({ swing: 'right' })}>Right</button></fieldset>
+          <fieldset className="door-toggle"><legend>SWING DIRECTION</legend><button type="button" className={doorValues.swingSide === 'in' ? 'active' : ''} onClick={() => changeDoorValues({ swingSide: 'in' })}>Inward</button><button type="button" className={doorValues.swingSide === 'out' ? 'active' : ''} onClick={() => changeDoorValues({ swingSide: 'out' })}>Outward</button></fieldset>
           <button className="place-object" disabled={loading || saving}>{saving ? 'Saving…' : 'Apply door changes'}</button>
           <button type="button" className="delete-wall-button" disabled={saving} onClick={() => onDeleteOpening(selectedOpening.id)}>Remove door</button>
         </form>
       ) : selectedWall ? (
         <form onSubmit={saveWall}>
           <div className="selected-wall-badge"><span>{exterior ? 'EXTERIOR' : 'INTERIOR'}</span><strong>{selectedWall.id}</strong></div>
-          <div className="wall-drag-hint"><span>↔</span><p><strong>{exterior ? 'Drag corners or edge' : 'Drag either endpoint'}</strong>Measurements update live and save when released.</p></div>
+          <div className="wall-drag-hint"><span>↔</span><p><strong>{exterior ? 'Drag corners or edge' : 'Drag wall or either endpoint'}</strong>Measurements update live and save when released.</p></div>
           <button type="button" className="add-door-button" disabled={loading || saving} onClick={() => onAddDoor(selectedWall.id)}>＋ Add door</button>
           {exterior && <div className="exterior-corner-actions"><button type="button" onClick={() => onAddExteriorCorner(selectedWall.id)}>＋ Add corner</button><button type="button" onClick={() => onRemoveExteriorCorner(selectedWall.id, 'start')}>− Start corner</button><button type="button" onClick={() => onRemoveExteriorCorner(selectedWall.id, 'end')}>− End corner</button></div>}
-          <label className="dimension-control"><span>LENGTH · METERS <small>Start fixed for exact edits</small></span><div><input aria-label="Wall length slider" type="range" min="0.1" max="30" step="0.01" value={wallValues.length} onChange={(event) => setWallValues((current) => ({ ...current, length: Number(event.target.value) }))} /><input aria-label="Exact wall length" type="number" min="0.1" max="30" step="0.01" value={wallValues.length} onChange={(event) => setWallValues((current) => ({ ...current, length: Number(event.target.value) }))} /></div></label>
-          <label className="dimension-control"><span>THICKNESS · METERS</span><div><input aria-label="Wall thickness slider" type="range" min="0.05" max="0.5" step="0.01" value={wallValues.thickness} onChange={(event) => setWallValues((current) => ({ ...current, thickness: Number(event.target.value) }))} /><input aria-label="Exact wall thickness" type="number" min="0.05" max="0.5" step="0.01" value={wallValues.thickness} onChange={(event) => setWallValues((current) => ({ ...current, thickness: Number(event.target.value) }))} /></div></label>
-          <label className="dimension-control"><span>HEIGHT · METERS</span><div><input aria-label="Wall height slider" type="range" min="1.8" max="6" step="0.01" value={wallValues.height} onChange={(event) => setWallValues((current) => ({ ...current, height: Number(event.target.value) }))} /><input aria-label="Exact wall height" type="number" min="1.8" max="6" step="0.01" value={wallValues.height} onChange={(event) => setWallValues((current) => ({ ...current, height: Number(event.target.value) }))} /></div></label>
+          <label className="dimension-control"><span>LENGTH · METERS <small>Start fixed for exact edits</small></span><div><input aria-label="Wall length slider" type="range" min="0.1" max="30" step="0.01" value={wallValues.length} onChange={(event) => changeWallValue('length', Number(event.target.value))} /><input aria-label="Exact wall length" type="number" min="0.1" max="30" step="0.01" value={wallValues.length} onChange={(event) => changeWallValue('length', Number(event.target.value))} /></div></label>
+          <label className="dimension-control"><span>THICKNESS · METERS</span><div><input aria-label="Wall thickness slider" type="range" min="0.05" max="0.5" step="0.01" value={wallValues.thickness} onChange={(event) => changeWallValue('thickness', Number(event.target.value))} /><input aria-label="Exact wall thickness" type="number" min="0.05" max="0.5" step="0.01" value={wallValues.thickness} onChange={(event) => changeWallValue('thickness', Number(event.target.value))} /></div></label>
+          <label className="dimension-control"><span>HEIGHT · METERS</span><div><input aria-label="Wall height slider" type="range" min="1.8" max="6" step="0.01" value={wallValues.height} onChange={(event) => changeWallValue('height', Number(event.target.value))} /><input aria-label="Exact wall height" type="number" min="1.8" max="6" step="0.01" value={wallValues.height} onChange={(event) => changeWallValue('height', Number(event.target.value))} /></div></label>
           <div className="wall-coordinate-readout"><span>START</span><strong>{selectedWall.start.x.toFixed(2)}, {selectedWall.start.y.toFixed(2)}</strong><span>END</span><strong>{selectedWall.end.x.toFixed(2)}, {selectedWall.end.y.toFixed(2)}</strong></div>
           <button className="place-object" disabled={loading || saving}>{saving ? 'Saving…' : 'Apply wall dimensions'}</button>
           {!exterior && <button type="button" className="delete-wall-button" disabled={saving} onClick={() => onDeleteWall(selectedWall.id)}>Remove interior wall</button>}
@@ -902,8 +1032,8 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
             {drawingWall && <p className="tool-instruction">Click a start point, then an end point. Walls snap to corners, edges, the grid, horizontal, and vertical lines.</p>}
           </div>
           <form onSubmit={resize}>
-            <fieldset className="apartment-dimensions"><legend>OVERALL DIMENSIONS · METERS</legend><label className="dimension-control"><span>W · WIDTH</span><div><input aria-label="Apartment width slider" type="range" min="2" max="30" step="0.01" value={width} onChange={(event) => setWidth(Number(event.target.value))} /><input aria-label="Exact apartment width" type="number" min="2" max="30" step="0.01" value={width} onChange={(event) => setWidth(Number(event.target.value))} /></div></label><label className="dimension-control"><span>D · DEPTH</span><div><input aria-label="Apartment depth slider" type="range" min="2" max="30" step="0.01" value={depth} onChange={(event) => setDepth(Number(event.target.value))} /><input aria-label="Exact apartment depth" type="number" min="2" max="30" step="0.01" value={depth} onChange={(event) => setDepth(Number(event.target.value))} /></div></label></fieldset>
-            <div className="footprint-preview"><div style={{ aspectRatio: `${Math.max(width, 0.1)} / ${Math.max(depth, 0.1)}` }} /><span>{(width * depth).toFixed(1)} m² bounding area</span></div>
+            <fieldset className="apartment-dimensions"><legend>OVERALL DIMENSIONS · METERS</legend><label className="dimension-control"><span>W · WIDTH</span><div><input aria-label="Apartment width slider" type="range" min="2" max="30" step="0.01" value={width} onChange={(event) => changeApartmentValue('width', Number(event.target.value))} /><input aria-label="Exact apartment width" type="number" min="2" max="30" step="0.01" value={width} onChange={(event) => changeApartmentValue('width', Number(event.target.value))} /></div></label><label className="dimension-control"><span>D · DEPTH</span><div><input aria-label="Apartment depth slider" type="range" min="2" max="30" step="0.01" value={depth} onChange={(event) => changeApartmentValue('depth', Number(event.target.value))} /><input aria-label="Exact apartment depth" type="number" min="2" max="30" step="0.01" value={depth} onChange={(event) => changeApartmentValue('depth', Number(event.target.value))} /></div></label><label className="dimension-control"><span>H · HEIGHT</span><div><input aria-label="Apartment height slider" type="range" min="1.8" max="6" step="0.01" value={height} onChange={(event) => changeApartmentValue('height', Number(event.target.value))} /><input aria-label="Exact apartment height" type="number" min="1.8" max="6" step="0.01" value={height} onChange={(event) => changeApartmentValue('height', Number(event.target.value))} /></div></label></fieldset>
+            <div className="footprint-preview"><div className="apartment-preview-stage"><div className="apartment-preview-box" style={previewStyle} /></div><span>{width.toFixed(2)} × {depth.toFixed(2)} × {height.toFixed(2)} m · {(width * depth).toFixed(1)} m²</span></div>
             <button className="place-object" disabled={loading || saving}>{saving ? 'Resizing…' : 'Apply apartment size'}</button>
           </form>
         </>
@@ -925,7 +1055,7 @@ function FurniturePanel({ selected, onSelect, objects }: { selected: string; onS
         {visible.length === 0 && <div className="empty-furniture-list"><span>＋</span><strong>No furniture yet</strong><p>Add an item from the object library on the right.</p></div>}
         {visible.map((item) => (
           <button key={item.id} className={`furniture-row ${selected === item.id ? 'selected' : ''}`} onClick={() => onSelect(item.id)}>
-            <span className={`furniture-thumb ${furnitureVisualKind(item)}`}><i /></span><span className="furniture-copy"><strong>{item.name}</strong><small>{formatDimensions(item.dimensions)}</small></span><span className="drag-dots">⠿</span>
+            <span className="furniture-icon-frame compact" style={{ display: 'grid', flex: '0 0 38px', width: 38, height: 32, placeItems: 'center' }}><FurnitureGlyph category={item.category} name={item.name} compact /></span><span className="furniture-copy"><strong>{item.name}</strong><small>{formatDimensions(item.dimensions)}</small></span><span className="drag-dots">⠿</span>
           </button>
         ))}
       </div>
@@ -934,14 +1064,40 @@ function FurniturePanel({ selected, onSelect, objects }: { selected: string; onS
   );
 }
 
-function furnitureVisualKind(item: SceneObject) {
-  const name = item.name.toLowerCase();
-  if (name.includes('bed')) return 'bed';
-  if (name.includes('sofa')) return 'sofa';
-  if (name.includes('desk')) return 'desk';
-  if (name.includes('table')) return 'table';
-  if (name.includes('dresser')) return 'dresser';
-  return 'custom';
+function furnitureKind(category: string, name: string) {
+  const label = name.toLowerCase();
+  return label.includes('bed') ? 'bed'
+    : label.includes('sofa') ? 'sofa'
+      : label.includes('desk') ? 'desk'
+        : label.includes('dining') ? 'dining'
+          : label.includes('coffee') ? 'coffee'
+            : label.includes('chair') ? 'chair'
+              : label.includes('bookcase') ? 'bookcase'
+                : label.includes('nightstand') ? 'nightstand'
+                  : label.includes('dresser') || category === 'storage' ? 'storage'
+                  : category;
+}
+
+function FurnitureGlyph({ category, name, compact = false }: { category: string; name: string; compact?: boolean }) {
+  const kind = furnitureKind(category, name);
+  const mainStyle = { fill: 'rgba(82,116,136,.07)', stroke: '#527488', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  const detailStyle = { fill: 'none', stroke: '#527488', strokeWidth: 1.05, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  const softStyle = { ...detailStyle, strokeWidth: .75, strokeDasharray: '1.4 1.4', opacity: .58 };
+  const accentStyle = { fill: '#527488', stroke: 'none' };
+  return (
+    <svg className={`furniture-glyph glyph-${kind}`} width={compact ? 34 : 48} height={compact ? 28 : 42} viewBox="0 0 48 36" fill="none" style={{ display: 'block', flex: 'none', overflow: 'visible' }} aria-hidden="true">
+      {kind === 'bed' && <><rect style={mainStyle} x="11" y="5" width="26" height="27" rx="1" /><path style={detailStyle} d="M11 14h26M24 14v18M13.5 8h9v4h-9zM25.5 8h9v4h-9z" /><path style={softStyle} d="M14 18v11M18 18v11M30 18v11M34 18v11" /></>}
+      {kind === 'sofa' && <><rect style={mainStyle} x="7" y="9" width="34" height="20" rx="5" /><rect style={detailStyle} x="12" y="12" width="24" height="13" rx="3" /><path style={mainStyle} d="M12 12v13M36 12v13M24 12v13" /><path style={softStyle} d="M9 30h30" /></>}
+      {kind === 'desk' && <><rect style={mainStyle} x="7" y="7" width="34" height="15" rx="1" /><path style={detailStyle} d="M11 18h26M18 11h12v7H18z" /><rect style={mainStyle} x="18" y="25" width="12" height="7" rx="3" /><path style={softStyle} d="M24 22v3" /></>}
+      {kind === 'dining' && <><ellipse style={mainStyle} cx="24" cy="18" rx="13" ry="9" /><path style={detailStyle} d="M24 9v18M11 18h26" /><rect style={mainStyle} x="20" y="2.5" width="8" height="4" rx="2" /><rect style={mainStyle} x="20" y="29.5" width="8" height="4" rx="2" /><rect style={mainStyle} x="4.5" y="14" width="4" height="8" rx="2" /><rect style={mainStyle} x="39.5" y="14" width="4" height="8" rx="2" /></>}
+      {kind === 'coffee' && <><ellipse style={mainStyle} cx="24" cy="18" rx="16" ry="10" /><ellipse style={detailStyle} cx="24" cy="18" rx="11" ry="6" /><circle style={accentStyle} cx="24" cy="18" r="1.8" /></>}
+      {kind === 'chair' && <><rect style={mainStyle} x="13" y="8" width="22" height="22" rx="6" /><rect style={detailStyle} x="17" y="12" width="14" height="13" rx="4" /><path style={mainStyle} d="M13 13H9v12h4M35 13h4v12h-4M17 30v3M31 30v3" /></>}
+      {kind === 'bookcase' && <><rect style={mainStyle} x="13" y="4" width="22" height="28" /><path style={mainStyle} d="M13 11h22M13 18h22M13 25h22" /><path style={softStyle} d="M17 6v4M22 6v4M29 13v4M18 20v4M26 27v4M31 27v4" /></>}
+      {kind === 'nightstand' && <><rect style={mainStyle} x="14" y="6" width="20" height="25" rx="1" /><path style={mainStyle} d="M14 14h20M14 22h20" /><circle style={accentStyle} cx="24" cy="10" r="1" /><circle style={accentStyle} cx="24" cy="18" r="1" /><circle style={accentStyle} cx="24" cy="26" r="1" /></>}
+      {kind === 'storage' && <><rect style={mainStyle} x="10" y="7" width="28" height="23" rx="1" /><path style={mainStyle} d="M10 14.5h28M10 22h28M24 7v23" /><circle style={accentStyle} cx="21" cy="11" r="1" /><circle style={accentStyle} cx="27" cy="11" r="1" /><circle style={accentStyle} cx="21" cy="18" r="1" /><circle style={accentStyle} cx="27" cy="18" r="1" /></>}
+      {!['bed', 'sofa', 'desk', 'dining', 'coffee', 'chair', 'bookcase', 'nightstand', 'storage'].includes(kind) && <><path style={mainStyle} d="M12 8h24l5 10-5 10H12L7 18z" /><circle style={accentStyle} cx="24" cy="18" r="4" /><path style={detailStyle} d="M24 9v5M24 22v5M15 18h5M28 18h5" /></>}
+    </svg>
+  );
 }
 
 function PlanView({ editMode, architecture, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, selected, onSelect, onSelectWall, onSelectOpening, onSelectRoom, layout, zoom, objects, collisionMessage, statusError, onMove, onCommitMove, onRotate, onDelete, onAddWall, onUpdateWall, onUpdateOpening }: { editMode: EditMode; architecture: ArchitecturalElement[]; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; selected: string; onSelect: (item: string) => void; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; layout: LayoutKey; zoom: number; objects: SceneObject[]; collisionMessage: string; statusError: boolean; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<void>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<boolean>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<boolean> }) {
@@ -1071,14 +1227,20 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
   const wallDragAtPoint = (current: WallDragState, raw: Point2): WallDragState => {
     const wall = walls.find((candidate) => candidate.id === current.wallId);
     if (!wall) return current;
+    const exterior = isExteriorWall(wall, bounds, architecture);
     if (current.mode === 'edge') {
-      const delta = { x: Math.round((raw.x - current.pointerStart.x) * 10) / 10, y: Math.round((raw.y - current.pointerStart.y) * 10) / 10 };
+      let delta = { x: Math.round((raw.x - current.pointerStart.x) * 10) / 10, y: Math.round((raw.y - current.pointerStart.y) * 10) / 10 };
+      if (!exterior) {
+        delta = {
+          x: Math.max(bounds.minX - Math.min(current.originStart.x, current.originEnd.x), Math.min(bounds.maxX - Math.max(current.originStart.x, current.originEnd.x), delta.x)),
+          y: Math.max(bounds.minY - Math.min(current.originStart.y, current.originEnd.y), Math.min(bounds.maxY - Math.max(current.originStart.y, current.originEnd.y), delta.y)),
+        };
+      }
       return { ...current, start: { x: current.originStart.x + delta.x, y: current.originStart.y + delta.y }, end: { x: current.originEnd.x + delta.x, y: current.originEnd.y + delta.y } };
     }
     const endpoint = current.endpoint ?? 'end';
     const fixedPoint = endpoint === 'start' ? current.originEnd : current.originStart;
     const movingOrigin = endpoint === 'start' ? current.originStart : current.originEnd;
-    const exterior = isExteriorWall(wall, bounds, architecture);
     const excludedWallIds = new Set(walls.filter((candidate) => candidate.id === wall.id || (exterior && [candidate.start, candidate.end].some((point) => samePoint(point, movingOrigin)))).map((candidate) => candidate.id));
     const snappingArchitecture = architecture.filter((element) => !excludedWallIds.has(element.id));
     const point = snapWallEnd(fixedPoint, raw, snappingArchitecture, bounds, !exterior);
@@ -1140,7 +1302,7 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
   };
 
   const beginWallEdgeDrag = (event: PointerEvent<SVGLineElement>, wall: WallElement) => {
-    if (drawingWall || selectedWallId !== wall.id || !isExteriorWall(wall, bounds, architecture)) return;
+    if (drawingWall || selectedWallId !== wall.id) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1203,7 +1365,7 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
         const originalWall = walls.find((candidate) => candidate.id === wall.id) ?? wall;
         const exterior = isExteriorWall(originalWall, bounds, architecture);
         const selectedWall = editMode === 'architecture' && selectedWallId === wall.id;
-        return <g key={wall.id} className={`architecture-wall ${selectedWall ? 'selected' : ''} ${wallDrag?.wallId === wall.id ? 'dragging' : ''}`} onPointerDown={(event) => { if (!drawingWall && editMode === 'architecture') { event.stopPropagation(); onSelectWall(wall.id); } }}><line className="wall-visible" x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness, 0.07)} /><line className={`wall-hit-target ${selectedWall && exterior ? 'edge-draggable' : ''}`} x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness * 4, 0.28)} onPointerDown={(event) => beginWallEdgeDrag(event, originalWall)} />{selectedWall && <><circle role="button" aria-label="Drag wall start point" className="wall-endpoint-hit" cx={wall.start.x} cy={wall.start.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'start')} /><circle className="wall-endpoint-handle start" pointerEvents="none" cx={wall.start.x} cy={wall.start.y} r={fontSize * 0.5} /><circle role="button" aria-label="Drag wall end point" className="wall-endpoint-hit" cx={wall.end.x} cy={wall.end.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'end')} /><circle className="wall-endpoint-handle end" pointerEvents="none" cx={wall.end.x} cy={wall.end.y} r={fontSize * 0.5} /><text className="wall-length-label" x={(wall.start.x + wall.end.x) / 2} y={(wall.start.y + wall.end.y) / 2 - fontSize * 0.65} fontSize={fontSize * 0.9} textAnchor="middle">{wallLength(wall).toFixed(2)} m · {wallDrag?.wallId === wall.id ? 'DRAGGING' : exterior ? 'DRAG CORNERS OR EDGE' : 'DRAG EITHER END'}</text></>}</g>;
+        return <g key={wall.id} className={`architecture-wall ${selectedWall ? 'selected' : ''} ${wallDrag?.wallId === wall.id ? 'dragging' : ''}`} onPointerDown={(event) => { if (!drawingWall && editMode === 'architecture') { event.stopPropagation(); onSelectWall(wall.id); } }}><line className="wall-visible" x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness, 0.07)} /><line className={`wall-hit-target ${selectedWall ? 'edge-draggable' : ''}`} x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness * 4, 0.28)} onPointerDown={(event) => beginWallEdgeDrag(event, originalWall)} />{selectedWall && <><circle role="button" aria-label="Drag wall start point" className="wall-endpoint-hit" cx={wall.start.x} cy={wall.start.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'start')} /><circle className="wall-endpoint-handle start" pointerEvents="none" cx={wall.start.x} cy={wall.start.y} r={fontSize * 0.5} /><circle role="button" aria-label="Drag wall end point" className="wall-endpoint-hit" cx={wall.end.x} cy={wall.end.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'end')} /><circle className="wall-endpoint-handle end" pointerEvents="none" cx={wall.end.x} cy={wall.end.y} r={fontSize * 0.5} /><text className="wall-length-label" x={(wall.start.x + wall.end.x) / 2} y={(wall.start.y + wall.end.y) / 2 - fontSize * 0.65} fontSize={fontSize * 0.9} textAnchor="middle">{wallLength(wall).toFixed(2)} m · H {wall.height.toFixed(2)} m · {wallDrag?.wallId === wall.id ? 'DRAGGING' : exterior ? 'DRAG CORNERS OR EDGE' : 'DRAG WALL OR EITHER END'}</text></>}</g>;
       })}
       {renderedOpenings.map((opening) => {
         const wall = renderedWalls.find((candidate) => candidate.id === opening.wallId);
@@ -1229,13 +1391,91 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
 }
 
 function PlanFurniture({ item, ...props }: { item: SceneObject; selected: string; onSelect: (id: string) => void; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; architecture: ArchitecturalElement[]; bounds: ReturnType<typeof getArchitectureBounds> }) {
-  const name = item.name.toLowerCase();
-  if (item.category === 'sofa' || name.includes('sofa')) return <DraggablePlanObject item={item} className="sofa" {...props}><i /><i /><i /></DraggablePlanObject>;
-  if (item.category === 'desk' || name.includes('desk')) return <DraggablePlanObject item={item} className="desk" {...props}><i className="chair" /><span className="computer" /><b className="clearance">3′ CLEAR</b></DraggablePlanObject>;
-  if (item.category === 'bed' || name.includes('bed')) return <DraggablePlanObject item={item} className="bed" {...props}><span /><i /><i /></DraggablePlanObject>;
-  if (name.includes('dining') || name.includes('coffee table') || item.category === 'table') return <DraggablePlanObject item={item} className="table" {...props}><i /><i /><i /><i /></DraggablePlanObject>;
-  if (name.includes('dresser')) return <DraggablePlanObject item={item} className="dresser" {...props}><i /><i /><i /></DraggablePlanObject>;
-  return <DraggablePlanObject item={item} className="added-object" {...props}><span>{item.name}</span></DraggablePlanObject>;
+  const kind = furnitureKind(item.category, item.name);
+  return <DraggablePlanObject item={item} className={`furniture-plan-object plan-${kind}`} {...props}><PlanFurnitureDrawing kind={kind} /></DraggablePlanObject>;
+}
+
+function PlanFurnitureDrawing({ kind }: { kind: string }) {
+  const line = { fill: 'none', stroke: '#527488', strokeWidth: 1.7, vectorEffect: 'non-scaling-stroke' as const, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  const body = { ...line, fill: '#dce3df' };
+  const light = { ...line, fill: '#f4f3e9' };
+  const detail = { ...line, strokeWidth: 1.05 };
+  return (
+    <svg className="plan-furniture-drawing" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      {kind === 'bed' && <>
+        <rect {...body} x="3" y="3" width="94" height="94" rx="2" />
+        <path {...detail} d="M4 32H96" />
+        <rect {...light} x="8" y="8" width="39" height="19" rx="3" />
+        <rect {...light} x="53" y="8" width="39" height="19" rx="3" />
+        <rect {...light} x="8" y="37" width="84" height="55" rx="1" />
+        <path {...detail} d="M20 38V91M32 38V91M44 38V91M56 38V91M68 38V91M80 38V91" opacity=".42" />
+        <path {...detail} d="M8 48Q50 57 92 48" opacity=".65" />
+      </>}
+      {kind === 'sofa' && <>
+        <rect {...body} x="3" y="7" width="94" height="86" rx="12" />
+        <rect {...light} x="12" y="14" width="76" height="72" rx="8" />
+        <path {...detail} d="M37.3 15V85M62.7 15V85M12 68H88" />
+        <path {...line} d="M12 21H6V79H12M88 21H94V79H88" />
+        <path {...detail} d="M17 91H27M73 91H83" />
+      </>}
+      {kind === 'desk' && <>
+        <rect {...body} x="3" y="6" width="94" height="70" rx="2" />
+        <path {...detail} d="M4 65H96M12 14V61M88 14V61" />
+        <rect {...light} x="30" y="15" width="40" height="27" rx="2" />
+        <path {...line} d="M50 42V50M39 50H61" />
+        <rect {...light} x="34" y="55" width="32" height="6" rx="2" />
+        <path {...detail} d="M10 83H90" opacity=".5" />
+        <ellipse {...light} cx="50" cy="87" rx="18" ry="10" />
+      </>}
+      {kind === 'dining' && <>
+        <ellipse {...body} cx="50" cy="50" rx="31" ry="29" />
+        <path {...detail} d="M50 22V78M20 50H80" />
+        <rect {...light} x="39" y="3" width="22" height="13" rx="6" />
+        <rect {...light} x="39" y="84" width="22" height="13" rx="6" />
+        <rect {...light} x="3" y="39" width="13" height="22" rx="6" />
+        <rect {...light} x="84" y="39" width="13" height="22" rx="6" />
+        <circle cx="50" cy="50" r="3" fill="#527488" />
+      </>}
+      {kind === 'coffee' && <>
+        <ellipse {...body} cx="50" cy="50" rx="46" ry="42" />
+        <ellipse {...light} cx="50" cy="50" rx="37" ry="32" />
+        <path {...detail} d="M20 50H80M50 20V80" opacity=".52" />
+        <circle cx="50" cy="50" r="4" fill="#527488" />
+      </>}
+      {kind === 'chair' && <>
+        <rect {...body} x="10" y="8" width="80" height="84" rx="18" />
+        <rect {...light} x="21" y="16" width="58" height="65" rx="14" />
+        <path {...detail} d="M22 65Q50 76 78 65M21 31Q50 23 79 31" />
+        <path {...line} d="M11 30H3V72H11M89 30H97V72H89" />
+        <path {...detail} d="M24 91V97M76 91V97" />
+      </>}
+      {kind === 'nightstand' && <>
+        <rect {...body} x="9" y="4" width="82" height="92" rx="3" />
+        <path {...line} d="M9 34H91M9 64H91" />
+        <path {...detail} d="M35 19H65M35 49H65M35 79H65" />
+        <circle cx="50" cy="19" r="3" fill="#527488" />
+        <circle cx="50" cy="49" r="3" fill="#527488" />
+        <circle cx="50" cy="79" r="3" fill="#527488" />
+      </>}
+      {kind === 'bookcase' && <>
+        <rect {...body} x="6" y="3" width="88" height="94" rx="2" />
+        <path {...line} d="M6 27H94M6 51H94M6 75H94" />
+        <path {...detail} d="M14 7V25M23 7V25M36 7V25M61 29V49M72 29V49M86 29V49M15 53V73M31 53V73M41 53V73M67 77V95M79 77V95" opacity=".8" />
+        <path {...detail} d="M47 7L54 25M49 53L56 73" />
+      </>}
+      {kind === 'storage' && <>
+        <rect {...body} x="3" y="5" width="94" height="90" rx="2" />
+        <path {...line} d="M3 35H97M3 65H97M34 5V95M66 5V95" />
+        <circle cx="18" cy="20" r="3" fill="#527488" /><circle cx="50" cy="20" r="3" fill="#527488" /><circle cx="82" cy="20" r="3" fill="#527488" />
+        <circle cx="18" cy="50" r="3" fill="#527488" /><circle cx="50" cy="50" r="3" fill="#527488" /><circle cx="82" cy="50" r="3" fill="#527488" />
+        <circle cx="18" cy="80" r="3" fill="#527488" /><circle cx="50" cy="80" r="3" fill="#527488" /><circle cx="82" cy="80" r="3" fill="#527488" />
+      </>}
+      {!['bed', 'sofa', 'desk', 'dining', 'coffee', 'chair', 'nightstand', 'bookcase', 'storage'].includes(kind) && <>
+        <path {...body} d="M8 25Q8 8 25 8H75Q92 8 92 25V75Q92 92 75 92H25Q8 92 8 75Z" />
+        <path {...detail} d="M20 50H80M50 20V80" /><circle {...light} cx="50" cy="50" r="17" />
+      </>}
+    </svg>
+  );
 }
 
 type ObjectPlacement = { position: { x: number; z: number }; roomId: RoomId };
@@ -1378,6 +1618,7 @@ const objectPresets: Array<AddObjectInput & { shortLabel: string }> = [
   { shortLabel: 'Nightstand', name: 'Nightstand', category: 'storage', roomId: 'bedroom', dimensions: { width: 0.56, depth: 0.46, height: 0.61 } },
   { shortLabel: 'Bookcase', name: 'Bookcase', category: 'storage', roomId: 'living', dimensions: { width: 0.91, depth: 0.35, height: 1.83 } },
   { shortLabel: 'Coffee table', name: 'Coffee table', category: 'table', roomId: 'living', dimensions: { width: 1.07, depth: 0.61, height: 0.43 } },
+  { shortLabel: 'Object', name: 'Custom object', category: 'other', roomId: 'living', dimensions: { width: 0.8, depth: 0.8, height: 0.8 } },
 ];
 
 function DimensionPreview({ name, dimensions }: { name: string; dimensions: SceneObject['dimensions'] }) {
@@ -1453,7 +1694,7 @@ function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onResize, onCom
     <aside className="add-object-panel">
       <div className="add-object-heading"><span className="eyebrow">OBJECT LIBRARY</span><h2>Add object</h2><p>Choose an object, confirm its size, then place it into a room.</p></div>
       <form onSubmit={submit}>
-        <fieldset><legend>OBJECT TYPE</legend><div className="preset-grid">{objectPresets.map((preset, index) => <button type="button" key={preset.shortLabel} className={presetIndex === index ? 'active' : ''} onClick={() => choosePreset(index)}><i className={`preset-icon preset-${preset.category}`} />{preset.shortLabel}</button>)}</div></fieldset>
+        <fieldset><legend>OBJECT TYPE</legend><div className="preset-grid">{objectPresets.map((preset, index) => <button type="button" key={preset.shortLabel} className={presetIndex === index ? 'active' : ''} onClick={() => choosePreset(index)}><span className="furniture-icon-frame" style={{ display: 'grid', flex: '0 0 42px', width: 48, height: 42, placeItems: 'center' }}><FurnitureGlyph category={preset.category} name={preset.name} /></span>{preset.shortLabel}</button>)}</div></fieldset>
         <label className="field-label">NAME<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label className="field-label">PLACE IN<select value={rooms.some((room) => room.id === roomId) ? roomId : rooms[0]?.id ?? ''} onChange={(event) => setRoomId(event.target.value)}>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
         <DimensionPreview name={selectedObject?.name ?? name} dimensions={activeDimensions} />
