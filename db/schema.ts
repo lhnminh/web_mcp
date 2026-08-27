@@ -1,6 +1,15 @@
+export const createAnonymousProfilesTableSql = `
+  CREATE TABLE IF NOT EXISTS anonymous_profiles (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+  )
+`;
+
 export const createProjectsTableSql = `
   CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
+    owner_profile_id TEXT REFERENCES anonymous_profiles(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     scene_json TEXT NOT NULL,
     revision INTEGER NOT NULL DEFAULT 1,
@@ -9,7 +18,17 @@ export const createProjectsTableSql = `
   )
 `;
 
+export const addProjectOwnerSql = `
+  ALTER TABLE projects
+  ADD COLUMN IF NOT EXISTS owner_profile_id TEXT REFERENCES anonymous_profiles(id) ON DELETE CASCADE
+`;
+
 export const createProjectsUpdatedAtIndexSql = `
   CREATE INDEX IF NOT EXISTS idx_projects_updated_at
   ON projects(updated_at DESC)
+`;
+
+export const createProjectsOwnerUpdatedAtIndexSql = `
+  CREATE INDEX IF NOT EXISTS idx_projects_owner_updated_at
+  ON projects(owner_profile_id, updated_at DESC)
 `;

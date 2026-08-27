@@ -1,26 +1,32 @@
 import { createProject, listProjects } from '@/db/projects';
-import { demoScene } from '@/lib/domain/demo-scene';
-import { parseScene, SceneValidationError } from '@/lib/domain/scene-validation';
+import { blankApartmentScene } from '@/lib/domain/demo-scene';
+import { jsonForProfile, resolveBrowserProfile } from '@/lib/server/browser-profile';
 
-export async function GET() {
-  return Response.json({ projects: await listProjects() });
+export async function GET(request: Request) {
+  const profile = await resolveBrowserProfile(request);
+  return jsonForProfile(profile, { projects: await listProjects(profile.id) });
 }
 
 export async function POST(request: Request) {
+  const profile = await resolveBrowserProfile(request);
   try {
-    const body = (await request.json()) as { id?: string; name?: string; scene?: unknown };
-    const project = await createProject({
-      id: body.id,
-      name: body.name?.trim() || 'Untitled apartment',
-      scene: body.scene === undefined ? demoScene : parseScene(body.scene),
-    });
-    return Response.json(project, { status: 201 });
-  } catch (error) {
-    if (error instanceof SceneValidationError) {
-      return Response.json({ error: error.message }, { status: 400 });
+    const body = (await request.json()) as { name?: unknown };
+    if (body.name !== undefined && typeof body.name !== 'string') {
+      return jsonForProfile(profile, { error: 'name must be a string' }, { status: 400 });
     }
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (name.length > 80) {
+      return jsonForProfile(profile, { error: 'name must be 80 characters or fewer' }, { status: 400 });
+    }
+    const project = await createProject({
+      ownerProfileId: profile.id,
+      name: name || 'Untitled apartment',
+      scene: structuredClone(blankApartmentScene),
+    });
+    return jsonForProfile(profile, project, { status: 201 });
+  } catch (error) {
     if (error instanceof SyntaxError) {
-      return Response.json({ error: 'Request body must be valid JSON' }, { status: 400 });
+      return jsonForProfile(profile, { error: 'Request body must be valid JSON' }, { status: 400 });
     }
     throw error;
   }

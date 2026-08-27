@@ -10,11 +10,11 @@ In the Vercel project, open **Storage**, add a Neon Postgres database, and conne
 
 Optionally set `NEXT_PUBLIC_SITE_URL` to the final custom-domain URL. When it is omitted, the application uses Vercel's production deployment URL for social preview metadata.
 
-The application creates its `projects` table and index on the first API request.
+The application creates its anonymous-profile and project storage on the first API request. Existing project tables receive the new nullable browser-owner column automatically.
 
 ## 3. Deploy
 
-Deploy the project from the Vercel dashboard. The first request to `/api/projects/demo` creates the demo apartment record. Subsequent pushes to the production branch deploy automatically.
+Deploy the project from the Vercel dashboard. The first visit creates a private anonymous browser profile when the dashboard requests `/api/projects`. Each new apartment is stored under that profile. Subsequent pushes to the production branch deploy automatically.
 
 ## 4. Run locally with the connected database
 
