@@ -986,9 +986,9 @@ function FurniturePanel({ selected, onSelect, objects }: { selected: string; onS
   );
 }
 
-function FurnitureGlyph({ category, name, compact = false }: { category: string; name: string; compact?: boolean }) {
+function furnitureKind(category: string, name: string) {
   const label = name.toLowerCase();
-  const kind = label.includes('bed') ? 'bed'
+  return label.includes('bed') ? 'bed'
     : label.includes('sofa') ? 'sofa'
       : label.includes('desk') ? 'desk'
         : label.includes('dining') ? 'dining'
@@ -997,7 +997,11 @@ function FurnitureGlyph({ category, name, compact = false }: { category: string;
               : label.includes('bookcase') ? 'bookcase'
                 : label.includes('nightstand') ? 'nightstand'
                   : label.includes('dresser') || category === 'storage' ? 'storage'
-                    : category;
+                  : category;
+}
+
+function FurnitureGlyph({ category, name, compact = false }: { category: string; name: string; compact?: boolean }) {
+  const kind = furnitureKind(category, name);
   const mainStyle = { fill: 'rgba(82,116,136,.07)', stroke: '#527488', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   const detailStyle = { fill: 'none', stroke: '#527488', strokeWidth: 1.05, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   const softStyle = { ...detailStyle, strokeWidth: .75, strokeDasharray: '1.4 1.4', opacity: .58 };
@@ -1309,13 +1313,91 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
 }
 
 function PlanFurniture({ item, ...props }: { item: SceneObject; selected: string; onSelect: (id: string) => void; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; architecture: ArchitecturalElement[]; bounds: ReturnType<typeof getArchitectureBounds> }) {
-  const name = item.name.toLowerCase();
-  if (item.category === 'sofa' || name.includes('sofa')) return <DraggablePlanObject item={item} className="sofa" {...props}><i /><i /><i /></DraggablePlanObject>;
-  if (item.category === 'desk' || name.includes('desk')) return <DraggablePlanObject item={item} className="desk" {...props}><i className="chair" /><span className="computer" /><b className="clearance">3′ CLEAR</b></DraggablePlanObject>;
-  if (item.category === 'bed' || name.includes('bed')) return <DraggablePlanObject item={item} className="bed" {...props}><span /><i /><i /></DraggablePlanObject>;
-  if (name.includes('dining') || name.includes('coffee table') || item.category === 'table') return <DraggablePlanObject item={item} className="table" {...props}><i /><i /><i /><i /></DraggablePlanObject>;
-  if (name.includes('dresser')) return <DraggablePlanObject item={item} className="dresser" {...props}><i /><i /><i /></DraggablePlanObject>;
-  return <DraggablePlanObject item={item} className="added-object" {...props}><span>{item.name}</span></DraggablePlanObject>;
+  const kind = furnitureKind(item.category, item.name);
+  return <DraggablePlanObject item={item} className={`furniture-plan-object plan-${kind}`} {...props}><PlanFurnitureDrawing kind={kind} /></DraggablePlanObject>;
+}
+
+function PlanFurnitureDrawing({ kind }: { kind: string }) {
+  const line = { fill: 'none', stroke: '#527488', strokeWidth: 1.7, vectorEffect: 'non-scaling-stroke' as const, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  const body = { ...line, fill: '#dce3df' };
+  const light = { ...line, fill: '#f4f3e9' };
+  const detail = { ...line, strokeWidth: 1.05 };
+  return (
+    <svg className="plan-furniture-drawing" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      {kind === 'bed' && <>
+        <rect {...body} x="3" y="3" width="94" height="94" rx="2" />
+        <path {...detail} d="M4 32H96" />
+        <rect {...light} x="8" y="8" width="39" height="19" rx="3" />
+        <rect {...light} x="53" y="8" width="39" height="19" rx="3" />
+        <rect {...light} x="8" y="37" width="84" height="55" rx="1" />
+        <path {...detail} d="M20 38V91M32 38V91M44 38V91M56 38V91M68 38V91M80 38V91" opacity=".42" />
+        <path {...detail} d="M8 48Q50 57 92 48" opacity=".65" />
+      </>}
+      {kind === 'sofa' && <>
+        <rect {...body} x="3" y="7" width="94" height="86" rx="12" />
+        <rect {...light} x="12" y="14" width="76" height="72" rx="8" />
+        <path {...detail} d="M37.3 15V85M62.7 15V85M12 68H88" />
+        <path {...line} d="M12 21H6V79H12M88 21H94V79H88" />
+        <path {...detail} d="M17 91H27M73 91H83" />
+      </>}
+      {kind === 'desk' && <>
+        <rect {...body} x="3" y="6" width="94" height="70" rx="2" />
+        <path {...detail} d="M4 65H96M12 14V61M88 14V61" />
+        <rect {...light} x="30" y="15" width="40" height="27" rx="2" />
+        <path {...line} d="M50 42V50M39 50H61" />
+        <rect {...light} x="34" y="55" width="32" height="6" rx="2" />
+        <path {...detail} d="M10 83H90" opacity=".5" />
+        <ellipse {...light} cx="50" cy="87" rx="18" ry="10" />
+      </>}
+      {kind === 'dining' && <>
+        <ellipse {...body} cx="50" cy="50" rx="31" ry="29" />
+        <path {...detail} d="M50 22V78M20 50H80" />
+        <rect {...light} x="39" y="3" width="22" height="13" rx="6" />
+        <rect {...light} x="39" y="84" width="22" height="13" rx="6" />
+        <rect {...light} x="3" y="39" width="13" height="22" rx="6" />
+        <rect {...light} x="84" y="39" width="13" height="22" rx="6" />
+        <circle cx="50" cy="50" r="3" fill="#527488" />
+      </>}
+      {kind === 'coffee' && <>
+        <ellipse {...body} cx="50" cy="50" rx="46" ry="42" />
+        <ellipse {...light} cx="50" cy="50" rx="37" ry="32" />
+        <path {...detail} d="M20 50H80M50 20V80" opacity=".52" />
+        <circle cx="50" cy="50" r="4" fill="#527488" />
+      </>}
+      {kind === 'chair' && <>
+        <rect {...body} x="10" y="8" width="80" height="84" rx="18" />
+        <rect {...light} x="21" y="16" width="58" height="65" rx="14" />
+        <path {...detail} d="M22 65Q50 76 78 65M21 31Q50 23 79 31" />
+        <path {...line} d="M11 30H3V72H11M89 30H97V72H89" />
+        <path {...detail} d="M24 91V97M76 91V97" />
+      </>}
+      {kind === 'nightstand' && <>
+        <rect {...body} x="9" y="4" width="82" height="92" rx="3" />
+        <path {...line} d="M9 34H91M9 64H91" />
+        <path {...detail} d="M35 19H65M35 49H65M35 79H65" />
+        <circle cx="50" cy="19" r="3" fill="#527488" />
+        <circle cx="50" cy="49" r="3" fill="#527488" />
+        <circle cx="50" cy="79" r="3" fill="#527488" />
+      </>}
+      {kind === 'bookcase' && <>
+        <rect {...body} x="6" y="3" width="88" height="94" rx="2" />
+        <path {...line} d="M6 27H94M6 51H94M6 75H94" />
+        <path {...detail} d="M14 7V25M23 7V25M36 7V25M61 29V49M72 29V49M86 29V49M15 53V73M31 53V73M41 53V73M67 77V95M79 77V95" opacity=".8" />
+        <path {...detail} d="M47 7L54 25M49 53L56 73" />
+      </>}
+      {kind === 'storage' && <>
+        <rect {...body} x="3" y="5" width="94" height="90" rx="2" />
+        <path {...line} d="M3 35H97M3 65H97M34 5V95M66 5V95" />
+        <circle cx="18" cy="20" r="3" fill="#527488" /><circle cx="50" cy="20" r="3" fill="#527488" /><circle cx="82" cy="20" r="3" fill="#527488" />
+        <circle cx="18" cy="50" r="3" fill="#527488" /><circle cx="50" cy="50" r="3" fill="#527488" /><circle cx="82" cy="50" r="3" fill="#527488" />
+        <circle cx="18" cy="80" r="3" fill="#527488" /><circle cx="50" cy="80" r="3" fill="#527488" /><circle cx="82" cy="80" r="3" fill="#527488" />
+      </>}
+      {!['bed', 'sofa', 'desk', 'dining', 'coffee', 'chair', 'nightstand', 'bookcase', 'storage'].includes(kind) && <>
+        <path {...body} d="M8 25Q8 8 25 8H75Q92 8 92 25V75Q92 92 75 92H25Q8 92 8 75Z" />
+        <path {...detail} d="M20 50H80M50 20V80" /><circle {...light} cx="50" cy="50" r="17" />
+      </>}
+    </svg>
+  );
 }
 
 type ObjectPlacement = { position: { x: number; z: number }; roomId: RoomId };
