@@ -102,6 +102,7 @@ export interface SceneDocument {
 
 export interface ProjectRecord {
   id: Id;
+  ownerProfileId: Id | null;
   name: string;
   revision: number;
   scene: SceneDocument;

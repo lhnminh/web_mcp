@@ -1,10 +1,17 @@
 import { neon } from '@neondatabase/serverless';
 import type { ProjectRecord, ProjectSummary, SceneDocument } from '@/lib/domain/scene';
 import { parseScene } from '@/lib/domain/scene-validation';
-import { createProjectsTableSql, createProjectsUpdatedAtIndexSql } from './schema';
+import {
+  addProjectOwnerSql,
+  createAnonymousProfilesTableSql,
+  createProjectsOwnerUpdatedAtIndexSql,
+  createProjectsTableSql,
+  createProjectsUpdatedAtIndexSql,
+} from './schema';
 
 type ProjectRow = {
   id: string;
+  owner_profile_id: string | null;
   name: string;
   scene_json: string;
   revision: number;
@@ -13,6 +20,7 @@ type ProjectRow = {
 };
 
 let schemaReady: Promise<void> | undefined;
+const memoryProfiles = new Set<string>();
 const memoryProjects = new Map<string, ProjectRecord>();
 
 const hasConfiguredDatabase = () => /^postgres(?:ql)?:\/\//.test(process.env.DATABASE_URL ?? '');
@@ -20,23 +28,25 @@ const cloneProject = (project: ProjectRecord): ProjectRecord => structuredClone(
 
 const database = () => {
   const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error('DATABASE_URL is not configured');
-  }
+  if (!connectionString) throw new Error('DATABASE_URL is not configured');
   return neon(connectionString);
 };
 
 async function ensureSchema(): Promise<void> {
   schemaReady ??= (async () => {
     const db = database();
+    await db.query(createAnonymousProfilesTableSql);
     await db.query(createProjectsTableSql);
+    await db.query(addProjectOwnerSql);
     await db.query(createProjectsUpdatedAtIndexSql);
+    await db.query(createProjectsOwnerUpdatedAtIndexSql);
   })();
   return schemaReady;
 }
 
 const toProject = (row: ProjectRow): ProjectRecord => ({
   id: row.id,
+  ownerProfileId: row.owner_profile_id,
   name: row.name,
   revision: row.revision,
   scene: parseScene(JSON.parse(row.scene_json)),
@@ -44,16 +54,44 @@ const toProject = (row: ProjectRow): ProjectRecord => ({
   updatedAt: row.updated_at,
 });
 
-export async function listProjects(): Promise<ProjectSummary[]> {
+const toSummary = ({ id, name, revision, createdAt, updatedAt }: ProjectRecord): ProjectSummary => ({
+  id,
+  name,
+  revision,
+  createdAt,
+  updatedAt,
+});
+
+export async function ensureAnonymousProfile(id: string): Promise<void> {
+  if (!hasConfiguredDatabase()) {
+    memoryProfiles.add(id);
+    return;
+  }
+  await ensureSchema();
+  const now = new Date().toISOString();
+  await database().query(
+    `INSERT INTO anonymous_profiles (id, created_at, last_seen_at)
+     VALUES ($1, $2, $2)
+     ON CONFLICT (id) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at`,
+    [id, now],
+  );
+}
+
+export async function listProjects(ownerProfileId: string): Promise<ProjectSummary[]> {
   if (!hasConfiguredDatabase()) {
     return [...memoryProjects.values()]
+      .filter((project) => project.ownerProfileId === ownerProfileId)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .map(({ id, name, revision, createdAt, updatedAt }) => ({ id, name, revision, createdAt, updatedAt }));
+      .map(toSummary);
   }
   await ensureSchema();
   const rows = (await database().query(
-    'SELECT id, name, revision, created_at, updated_at FROM projects ORDER BY updated_at DESC',
-  )) as Omit<ProjectRow, 'scene_json'>[];
+    `SELECT id, name, revision, created_at, updated_at
+     FROM projects
+     WHERE owner_profile_id = $1
+     ORDER BY updated_at DESC`,
+    [ownerProfileId],
+  )) as Omit<ProjectRow, 'owner_profile_id' | 'scene_json'>[];
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
@@ -63,48 +101,57 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   }));
 }
 
-export async function getProject(id: string): Promise<ProjectRecord | null> {
-  if (!hasConfiguredDatabase()) return memoryProjects.has(id) ? cloneProject(memoryProjects.get(id) as ProjectRecord) : null;
+export async function getProject(id: string, ownerProfileId: string): Promise<ProjectRecord | null> {
+  if (!hasConfiguredDatabase()) {
+    const project = memoryProjects.get(id);
+    return project?.ownerProfileId === ownerProfileId ? cloneProject(project) : null;
+  }
   await ensureSchema();
   const rows = (await database().query(
-    'SELECT id, name, scene_json, revision, created_at, updated_at FROM projects WHERE id = $1',
-    [id],
+    `SELECT id, owner_profile_id, name, scene_json, revision, created_at, updated_at
+     FROM projects
+     WHERE id = $1 AND owner_profile_id = $2`,
+    [id, ownerProfileId],
   )) as ProjectRow[];
-  const row = rows[0];
-  return row ? toProject(row) : null;
+  return rows[0] ? toProject(rows[0]) : null;
 }
 
-export async function createProject(input: { id?: string; name: string; scene: SceneDocument }): Promise<ProjectRecord> {
+export async function createProject(input: { ownerProfileId: string; name: string; scene: SceneDocument }): Promise<ProjectRecord> {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
   if (!hasConfiguredDatabase()) {
-    const id = input.id ?? crypto.randomUUID();
-    const existing = memoryProjects.get(id);
-    if (existing) return cloneProject(existing);
-    const now = new Date().toISOString();
-    const project: ProjectRecord = { id, name: input.name, revision: 1, scene: parseScene(structuredClone(input.scene)), createdAt: now, updatedAt: now };
+    const project: ProjectRecord = {
+      id,
+      ownerProfileId: input.ownerProfileId,
+      name: input.name,
+      revision: 1,
+      scene: parseScene(structuredClone(input.scene)),
+      createdAt: now,
+      updatedAt: now,
+    };
     memoryProjects.set(id, project);
     return cloneProject(project);
   }
   await ensureSchema();
-  const id = input.id ?? crypto.randomUUID();
-  const now = new Date().toISOString();
   const rows = (await database().query(
-    `INSERT INTO projects (id, name, scene_json, revision, created_at, updated_at)
-     VALUES ($1, $2, $3, 1, $4, $5)
-     RETURNING id, name, scene_json, revision, created_at, updated_at`,
-    [id, input.name, JSON.stringify(parseScene(input.scene)), now, now],
+    `INSERT INTO projects (id, owner_profile_id, name, scene_json, revision, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, 1, $5, $5)
+     RETURNING id, owner_profile_id, name, scene_json, revision, created_at, updated_at`,
+    [id, input.ownerProfileId, input.name, JSON.stringify(parseScene(input.scene)), now],
   )) as ProjectRow[];
   return toProject(rows[0]);
 }
 
 export async function updateProject(input: {
   id: string;
+  ownerProfileId: string;
   name: string;
   scene: SceneDocument;
   expectedRevision: number;
 }): Promise<ProjectRecord | 'conflict' | null> {
   if (!hasConfiguredDatabase()) {
     const current = memoryProjects.get(input.id);
-    if (!current) return null;
+    if (!current || current.ownerProfileId !== input.ownerProfileId) return null;
     if (current.revision !== input.expectedRevision) return 'conflict';
     const project: ProjectRecord = {
       ...current,
@@ -121,12 +168,24 @@ export async function updateProject(input: {
   const rows = (await database().query(
     `UPDATE projects
      SET name = $1, scene_json = $2, revision = revision + 1, updated_at = $3
-     WHERE id = $4 AND revision = $5
-     RETURNING id, name, scene_json, revision, created_at, updated_at`,
-    [input.name, JSON.stringify(parseScene(input.scene)), now, input.id, input.expectedRevision],
+     WHERE id = $4 AND owner_profile_id = $5 AND revision = $6
+     RETURNING id, owner_profile_id, name, scene_json, revision, created_at, updated_at`,
+    [input.name, JSON.stringify(parseScene(input.scene)), now, input.id, input.ownerProfileId, input.expectedRevision],
   )) as ProjectRow[];
-  if (rows.length === 0) {
-    return (await getProject(input.id)) ? 'conflict' : null;
-  }
+  if (rows.length === 0) return (await getProject(input.id, input.ownerProfileId)) ? 'conflict' : null;
   return toProject(rows[0]);
+}
+
+export async function deleteProject(id: string, ownerProfileId: string): Promise<boolean> {
+  if (!hasConfiguredDatabase()) {
+    const project = memoryProjects.get(id);
+    if (!project || project.ownerProfileId !== ownerProfileId) return false;
+    return memoryProjects.delete(id);
+  }
+  await ensureSchema();
+  const rows = (await database().query(
+    `DELETE FROM projects WHERE id = $1 AND owner_profile_id = $2 RETURNING id`,
+    [id, ownerProfileId],
+  )) as { id: string }[];
+  return rows.length > 0;
 }

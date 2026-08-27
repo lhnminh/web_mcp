@@ -28,20 +28,23 @@ Keeping one canonical unit and transform avoids conversion drift between views.
 
 ## API
 
-- `GET /api/projects` lists projects.
-- `POST /api/projects` creates a project. Omitting `scene` uses the demo apartment.
-- `GET /api/projects/demo` creates and returns the demo project on first access.
-- `GET /api/projects/:id` returns a complete scene document.
-- `PUT /api/projects/:id` replaces the project name and scene.
+- `GET /api/projects` lists projects owned by the current anonymous browser profile.
+- `POST /api/projects` creates an owned project from the neutral blank apartment.
+- `GET /api/projects/:id` returns an owned project's complete scene document.
+- `PUT /api/projects/:id` replaces an owned project's name and scene.
+- `PATCH /api/projects/:id` renames an owned project.
+- `DELETE /api/projects/:id` deletes an owned project.
 - `PATCH /api/projects/:id/objects/:objectId` updates one placed object's transform.
 
-Every write requires `expectedRevision`. A stale revision returns HTTP 409 with the current project, preventing one browser tab from silently overwriting another.
+The first projects API request creates a random anonymous profile and stores its ID in a secure, HTTP-only, same-site browser cookie. Every project route verifies ownership using that cookie. A project belonging to another browser returns HTTP 404 even when its ID is known.
+
+Scene, rename, and furniture writes require `expectedRevision`. A stale revision returns HTTP 409 with the current project, preventing one browser tab from silently overwriting another.
 
 ## Production storage
 
 The application stores projects in PostgreSQL through Neon's serverless driver. Set `DATABASE_URL` to a PostgreSQL connection string before starting the app. On Vercel, connecting a Neon database from the Storage marketplace supplies this value automatically.
 
-The API creates the `projects` table and its updated-at index when it first connects to an empty database. The SQL definitions remain in `db/schema.ts` and `migrations/0001_projects.sql` for inspection and manual database setup.
+The API creates the `anonymous_profiles` and `projects` tables and their indexes when it first connects to an empty database. It also adds the nullable ownership column to an existing projects table. The SQL definitions remain in `db/schema.ts` and `migrations/` for inspection and manual database setup.
 
 Example object move:
 
