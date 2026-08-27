@@ -46,8 +46,19 @@ export const demoScene: SceneDocument = {
   layouts: [layout('layout-a', 'Layout A', 'a'), layout('layout-b', 'Layout B', 'b')],
 };
 
-/** Fixed apartment shell used by the build-your-own planner. */
+/** Neutral one-room shell used by the build-your-own planner. */
 export const blankApartmentScene: SceneDocument = {
-  ...demoScene,
+  schemaVersion: SCENE_SCHEMA_VERSION,
+  coordinateSystem: 'right-handed-y-up',
+  units: 'meters',
+  northAngle: 0,
+  catalog: demoScene.catalog,
+  architecture: [
+    { id: 'main-space', kind: 'room', name: 'Main space', boundary: [{ x: 0, y: 0 }, { x: 7.87, y: 0 }, { x: 7.87, y: 8.43 }, { x: 0, y: 8.43 }], floorElevation: 0, ceilingHeight: 2.74 },
+    { id: 'wall-north', kind: 'wall', start: { x: 0, y: 0 }, end: { x: 7.87, y: 0 }, thickness: 0.15, height: 2.74 },
+    { id: 'wall-east', kind: 'wall', start: { x: 7.87, y: 0 }, end: { x: 7.87, y: 8.43 }, thickness: 0.15, height: 2.74 },
+    { id: 'wall-south', kind: 'wall', start: { x: 7.87, y: 8.43 }, end: { x: 0, y: 8.43 }, thickness: 0.15, height: 2.74 },
+    { id: 'wall-west', kind: 'wall', start: { x: 0, y: 8.43 }, end: { x: 0, y: 0 }, thickness: 0.15, height: 2.74 },
+  ],
   layouts: demoScene.layouts.map((item) => ({ ...item, elements: [] })),
 };

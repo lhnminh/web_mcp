@@ -3,6 +3,8 @@
 import { ContactShadows, OrbitControls, RoundedBox } from '@react-three/drei';
 import { Canvas, useThree } from '@react-three/fiber';
 import { type ReactNode, useEffect, useMemo, useRef } from 'react';
+import type { ArchitecturalElement, RoomElement, WallElement } from '@/lib/domain/scene';
+import { getArchitectureBounds, wallLength } from '@/lib/domain/architecture';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 
@@ -23,6 +25,7 @@ type ApartmentSceneProps = {
   lightPaths: boolean;
   measurements: boolean;
   objects: SceneObject[];
+  architecture: ArchitecturalElement[];
 };
 
 const palette = {
@@ -38,19 +41,20 @@ const palette = {
   brass: '#b88a4f',
 };
 
-function CameraController({ step, reset }: { step: number; reset: number }) {
+function CameraController({ step, reset, architecture }: { step: number; reset: number; architecture: ArchitecturalElement[] }) {
   const controls = useRef<OrbitControlsImpl>(null);
   const { camera } = useThree();
+  const bounds = useMemo(() => getArchitectureBounds(architecture), [architecture]);
 
   useEffect(() => {
     const angle = THREE.MathUtils.degToRad(-38 + step * 12);
-    const radius = 10.8;
-    const target = new THREE.Vector3(3.65, 0.85, 3.3);
-    camera.position.set(target.x + Math.cos(angle) * radius, 6.2, target.z + Math.sin(angle) * radius);
+    const radius = Math.max(8, Math.max(bounds.width, bounds.depth) * 1.35);
+    const target = new THREE.Vector3((bounds.minX + bounds.maxX) / 2, 0.85, (bounds.minY + bounds.maxY) / 2);
+    camera.position.set(target.x + Math.cos(angle) * radius, Math.max(5.5, radius * 0.58), target.z + Math.sin(angle) * radius);
     camera.lookAt(target);
     controls.current?.target.copy(target);
     controls.current?.update();
-  }, [camera, reset, step]);
+  }, [bounds, camera, reset, step]);
 
   return (
     <OrbitControls
@@ -58,12 +62,12 @@ function CameraController({ step, reset }: { step: number; reset: number }) {
       makeDefault
       enableDamping
       dampingFactor={0.07}
-      minDistance={4.2}
-      maxDistance={17}
+      minDistance={Math.max(3, Math.min(bounds.width, bounds.depth) * 0.6)}
+      maxDistance={Math.max(17, Math.max(bounds.width, bounds.depth) * 2.4)}
       minPolarAngle={0.3}
       maxPolarAngle={Math.PI / 2.08}
       screenSpacePanning={false}
-      target={[3.65, 0.85, 3.3]}
+      target={[(bounds.minX + bounds.maxX) / 2, 0.85, (bounds.minY + bounds.maxY) / 2]}
     />
   );
 }
@@ -83,70 +87,41 @@ function Box({ position, size, color, rotation, radius = 0.03, castShadow = true
   );
 }
 
-function Window({ x, z, rotate = false }: { x: number; z: number; rotate?: boolean }) {
-  const rotation: [number, number, number] = [0, rotate ? Math.PI / 2 : 0, 0];
-  return (
-    <group position={[x, 1.52, z]} rotation={rotation}>
-      <mesh receiveShadow>
-        <boxGeometry args={[1.36, 1.5, 0.035]} />
-        <meshPhysicalMaterial color="#bcd5d6" transmission={0.45} transparent opacity={0.42} roughness={0.16} />
-      </mesh>
-      <Box position={[0, 0.78, 0]} size={[1.52, 0.08, 0.09]} color={palette.trim} />
-      <Box position={[0, -0.78, 0]} size={[1.52, 0.08, 0.09]} color={palette.trim} />
-      <Box position={[-0.72, 0, 0]} size={[0.08, 1.64, 0.09]} color={palette.trim} />
-      <Box position={[0.72, 0, 0]} size={[0.08, 1.64, 0.09]} color={palette.trim} />
-      <Box position={[0, 0, 0]} size={[0.055, 1.52, 0.08]} color={palette.trim} />
-      <Box position={[0, 0, 0]} size={[1.44, 0.055, 0.08]} color={palette.trim} />
-    </group>
-  );
+function Wall({ position, size, rotation }: { position: [number, number, number]; size: [number, number, number]; rotation?: [number, number, number] }) {
+  return <Box position={position} size={size} rotation={rotation} color={palette.wall} radius={0.015} />;
 }
 
-function Wall({ position, size }: { position: [number, number, number]; size: [number, number, number] }) {
-  return <Box position={position} size={size} color={palette.wall} radius={0.015} />;
+function RoomFloor({ room, index }: { room: RoomElement; index: number }) {
+  const geometry = useMemo(() => {
+    const shape = new THREE.Shape();
+    room.boundary.forEach((point, pointIndex) => {
+      if (pointIndex === 0) shape.moveTo(point.x, -point.y);
+      else shape.lineTo(point.x, -point.y);
+    });
+    shape.closePath();
+    return new THREE.ShapeGeometry(shape);
+  }, [room]);
+  const colors = ['#c5aa86', '#d2bfa6', '#bda582', '#cfbda4'];
+  return <mesh geometry={geometry} position={[0, room.floorElevation + 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow><meshStandardMaterial color={colors[index % colors.length]} roughness={0.84} side={THREE.DoubleSide} /></mesh>;
 }
 
-function Architecture({ measurements }: { measurements: boolean }) {
+function SceneWall({ wall }: { wall: WallElement }) {
+  const length = wallLength(wall);
+  const angle = Math.atan2(wall.end.y - wall.start.y, wall.end.x - wall.start.x);
+  return <Wall position={[(wall.start.x + wall.end.x) / 2, wall.height / 2, (wall.start.y + wall.end.y) / 2]} size={[length, wall.height, wall.thickness]} rotation={[0, -angle, 0]} />;
+}
+
+function Architecture({ measurements, architecture }: { measurements: boolean; architecture: ArchitecturalElement[] }) {
+  const rooms = architecture.filter((element): element is RoomElement => element.kind === 'room');
+  const walls = architecture.filter((element): element is WallElement => element.kind === 'wall');
+  const bounds = getArchitectureBounds(architecture);
   return (
     <group>
-      <mesh position={[3.935, -0.06, 4.215]} receiveShadow>
-        <boxGeometry args={[7.87, 0.12, 8.43]} />
-        <meshStandardMaterial color="#b99a77" roughness={0.88} />
-      </mesh>
-      <mesh position={[2.16, 0.012, 2.82]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[4.25, 5.56]} />
-        <meshStandardMaterial color="#c5aa86" roughness={0.8} />
-      </mesh>
-      <mesh position={[6.095, 0.014, 1.88]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[3.45, 3.68]} />
-        <meshStandardMaterial color="#d2bfa6" roughness={0.85} />
-      </mesh>
-
-      {/* North wall is split around two real openings so sunlight enters the room. */}
-      <Wall position={[0.325, 1.37, 0]} size={[0.65, 2.74, 0.15]} />
-      <Wall position={[2.32, 1.37, 0]} size={[0.6, 2.74, 0.15]} />
-      <Wall position={[5.93, 1.37, 0]} size={[3.88, 2.74, 0.15]} />
-      <Wall position={[2.32, 0.38, 0]} size={[3.34, 0.76, 0.15]} />
-      <Wall position={[2.32, 2.66, 0]} size={[3.34, 0.16, 0.15]} />
-      <Window x={1.335} z={0.01} />
-      <Window x={3.305} z={0.01} />
-
-      <Wall position={[0, 1.37, 4.215]} size={[0.15, 2.74, 8.43]} />
-      <Wall position={[7.87, 1.37, 0.37]} size={[0.15, 2.74, 0.74]} />
-      <Wall position={[7.87, 1.37, 2.09]} size={[0.15, 2.74, 1.04]} />
-      <Wall position={[7.87, 1.37, 5.69]} size={[0.15, 2.74, 5.48]} />
-      <Wall position={[7.87, 0.38, 1.35]} size={[0.15, 0.76, 1.48]} />
-      <Wall position={[7.87, 2.66, 1.35]} size={[0.15, 0.16, 1.48]} />
-      <Window x={7.86} z={1.35} rotate />
-
-      <Wall position={[2.16, 1.37, 8.43]} size={[4.32, 2.74, 0.15]} />
-      <Wall position={[4.32, 1.37, 1.45]} size={[0.12, 2.74, 2.9]} />
-      <Wall position={[4.32, 1.37, 4.93]} size={[0.12, 2.74, 1.42]} />
-
-      <Box position={[0.38, 1.2, 4.8]} size={[0.08, 1.45, 1.25]} color="#d9d0be" rotation={[0, Math.PI / 2, 0]} />
-      <Box position={[0.43, 1.2, 4.8]} size={[0.05, 1.28, 1.08]} color="#a2a58f" rotation={[0, Math.PI / 2, 0]} />
+      {rooms.map((room, index) => <RoomFloor key={room.id} room={room} index={index} />)}
+      {walls.map((wall) => <SceneWall key={wall.id} wall={wall} />)}
 
       {measurements && (
-        <gridHelper args={[12, 24, '#5f7d8f', '#adc0c8']} position={[3.9, 0.022, 4.1]} />
+        <gridHelper args={[Math.max(bounds.width, bounds.depth) * 1.4, Math.max(12, Math.ceil(Math.max(bounds.width, bounds.depth) * 2)), '#5f7d8f', '#adc0c8']} position={[(bounds.minX + bounds.maxX) / 2, 0.022, (bounds.minY + bounds.maxY) / 2]} />
       )}
     </group>
   );
@@ -232,21 +207,6 @@ function CoffeeTable({ position }: { position: [number, number, number] }) {
   );
 }
 
-function Plant({ position }: { position: [number, number, number] }) {
-  return (
-    <group position={position}>
-      <mesh position={[0, 0.25, 0]} castShadow><cylinderGeometry args={[0.22, 0.17, 0.5, 18]} /><meshStandardMaterial color="#a66f50" roughness={0.8} /></mesh>
-      <Box position={[0, 0.78, 0]} size={[0.045, 0.85, 0.045]} color="#496454" />
-      {[-0.55, -0.25, 0.1, 0.42].map((y, index) => (
-        <mesh key={y} position={[index % 2 ? 0.17 : -0.17, 0.88 + y * 0.38, 0]} rotation={[0, 0, index % 2 ? -0.65 : 0.65]} castShadow>
-          <sphereGeometry args={[0.12, 12, 8]} />
-          <meshStandardMaterial color={index % 2 ? '#6c8b72' : '#7e9b7f'} roughness={0.9} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
 function AddedFurniture({ item }: { item: SceneObject }) {
   const { width, depth, height } = item.dimensions;
   const color = item.category === 'storage' ? palette.wood : item.category === 'table' ? palette.darkWood : '#86968e';
@@ -324,16 +284,17 @@ function Sunlight({ hour, shadows, lightPaths }: { hour: number; shadows: boolea
   );
 }
 
-function Scene({ hour, shadows, lightPaths, measurements, objects }: Omit<ApartmentSceneProps, 'cameraStep' | 'cameraReset'>) {
+function Scene({ hour, shadows, lightPaths, measurements, objects, architecture }: Omit<ApartmentSceneProps, 'cameraStep' | 'cameraReset'>) {
+  const bounds = getArchitectureBounds(architecture);
   return (
     <>
       <color attach="background" args={['#d8dedb']} />
       <fog attach="fog" args={['#d8dedb', 13, 24]} />
       <hemisphereLight args={['#e6f0f2', '#9a765d', 0.72]} />
       <Sunlight hour={hour} shadows={shadows} lightPaths={lightPaths} />
-      <Architecture measurements={measurements} />
+      <Architecture measurements={measurements} architecture={architecture} />
       <Furniture objects={objects} />
-      {shadows && <ContactShadows position={[3.9, 0.02, 4]} scale={11} opacity={0.32} blur={2.2} far={4} />}
+      {shadows && <ContactShadows position={[(bounds.minX + bounds.maxX) / 2, 0.02, (bounds.minY + bounds.maxY) / 2]} scale={Math.max(bounds.width, bounds.depth) * 1.35} opacity={0.32} blur={2.2} far={4} />}
     </>
   );
 }
@@ -358,8 +319,9 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
           lightPaths={props.lightPaths}
           measurements={props.measurements}
           objects={props.objects}
+          architecture={props.architecture}
         />
-        <CameraController step={props.cameraStep} reset={props.cameraReset} />
+        <CameraController step={props.cameraStep} reset={props.cameraReset} architecture={props.architecture} />
       </Canvas>
       <div className="canvas-help"><span>DRAG</span> orbit <i /> <span>SCROLL</span> zoom <i /> <span>RIGHT-DRAG</span> pan</div>
     </div>

@@ -13,6 +13,10 @@ type ProjectRow = {
 };
 
 let schemaReady: Promise<void> | undefined;
+const memoryProjects = new Map<string, ProjectRecord>();
+
+const hasConfiguredDatabase = () => /^postgres(?:ql)?:\/\//.test(process.env.DATABASE_URL ?? '');
+const cloneProject = (project: ProjectRecord): ProjectRecord => structuredClone(project);
 
 const database = () => {
   const connectionString = process.env.DATABASE_URL;
@@ -41,6 +45,11 @@ const toProject = (row: ProjectRow): ProjectRecord => ({
 });
 
 export async function listProjects(): Promise<ProjectSummary[]> {
+  if (!hasConfiguredDatabase()) {
+    return [...memoryProjects.values()]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map(({ id, name, revision, createdAt, updatedAt }) => ({ id, name, revision, createdAt, updatedAt }));
+  }
   await ensureSchema();
   const rows = (await database().query(
     'SELECT id, name, revision, created_at, updated_at FROM projects ORDER BY updated_at DESC',
@@ -55,6 +64,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 }
 
 export async function getProject(id: string): Promise<ProjectRecord | null> {
+  if (!hasConfiguredDatabase()) return memoryProjects.has(id) ? cloneProject(memoryProjects.get(id) as ProjectRecord) : null;
   await ensureSchema();
   const rows = (await database().query(
     'SELECT id, name, scene_json, revision, created_at, updated_at FROM projects WHERE id = $1',
@@ -65,6 +75,15 @@ export async function getProject(id: string): Promise<ProjectRecord | null> {
 }
 
 export async function createProject(input: { id?: string; name: string; scene: SceneDocument }): Promise<ProjectRecord> {
+  if (!hasConfiguredDatabase()) {
+    const id = input.id ?? crypto.randomUUID();
+    const existing = memoryProjects.get(id);
+    if (existing) return cloneProject(existing);
+    const now = new Date().toISOString();
+    const project: ProjectRecord = { id, name: input.name, revision: 1, scene: parseScene(structuredClone(input.scene)), createdAt: now, updatedAt: now };
+    memoryProjects.set(id, project);
+    return cloneProject(project);
+  }
   await ensureSchema();
   const id = input.id ?? crypto.randomUUID();
   const now = new Date().toISOString();
@@ -83,6 +102,20 @@ export async function updateProject(input: {
   scene: SceneDocument;
   expectedRevision: number;
 }): Promise<ProjectRecord | 'conflict' | null> {
+  if (!hasConfiguredDatabase()) {
+    const current = memoryProjects.get(input.id);
+    if (!current) return null;
+    if (current.revision !== input.expectedRevision) return 'conflict';
+    const project: ProjectRecord = {
+      ...current,
+      name: input.name,
+      scene: parseScene(structuredClone(input.scene)),
+      revision: current.revision + 1,
+      updatedAt: new Date().toISOString(),
+    };
+    memoryProjects.set(input.id, project);
+    return cloneProject(project);
+  }
   await ensureSchema();
   const now = new Date().toISOString();
   const rows = (await database().query(

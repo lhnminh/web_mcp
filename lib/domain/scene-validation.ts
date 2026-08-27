@@ -35,6 +35,13 @@ const point2 = (value: unknown, label: string): Point2 => {
   return { x: finite(value.x, `${label}.x`), y: finite(value.y, `${label}.y`) };
 };
 
+const polygonArea = (points: Point2[]) => Math.abs(points.reduce((area, point, index) => {
+  const next = points[(index + 1) % points.length];
+  return area + point.x * next.y - next.x * point.y;
+}, 0)) / 2;
+
+const distance = (start: Point2, end: Point2) => Math.hypot(end.x - start.x, end.y - start.y);
+
 const requireId = (value: unknown, label: string): string => {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new SceneValidationError(`${label} must be a non-empty string`);
@@ -69,6 +76,7 @@ export function parseScene(value: unknown): SceneDocument {
   const architectureIds = new Set<string>();
   const roomIds = new Set<string>();
   const wallIds = new Set<string>();
+  const wallLengths = new Map<string, number>();
   for (const [index, element] of value.architecture.entries()) {
     if (!isRecord(element)) throw new SceneValidationError(`architecture[${index}] must be an object`);
     const id = requireId(element.id, `architecture[${index}].id`);
@@ -79,14 +87,20 @@ export function parseScene(value: unknown): SceneDocument {
       if (!Array.isArray(element.boundary) || element.boundary.length < 3) {
         throw new SceneValidationError(`room ${id} must have at least three boundary points`);
       }
-      element.boundary.forEach((point, pointIndex) => point2(point, `room ${id} boundary[${pointIndex}]`));
+      const boundary = element.boundary.map((point, pointIndex) => point2(point, `room ${id} boundary[${pointIndex}]`));
+      if (polygonArea(boundary) < 0.01) throw new SceneValidationError(`room ${id} boundary must enclose an area`);
       positive(element.ceilingHeight, `room ${id} ceilingHeight`);
     } else if (element.kind === 'wall') {
       wallIds.add(id);
-      point2(element.start, `wall ${id} start`);
-      point2(element.end, `wall ${id} end`);
-      positive(element.thickness, `wall ${id} thickness`);
-      positive(element.height, `wall ${id} height`);
+      const start = point2(element.start, `wall ${id} start`);
+      const end = point2(element.end, `wall ${id} end`);
+      const length = distance(start, end);
+      if (length < 0.1) throw new SceneValidationError(`wall ${id} must be at least 0.1 meters long`);
+      wallLengths.set(id, length);
+      const thickness = positive(element.thickness, `wall ${id} thickness`);
+      if (thickness < 0.05 || thickness > 0.5) throw new SceneValidationError(`wall ${id} thickness must be between 0.05 and 0.5 meters`);
+      const height = positive(element.height, `wall ${id} height`);
+      if (height < 1.8 || height > 6) throw new SceneValidationError(`wall ${id} height must be between 1.8 and 6 meters`);
     } else if (element.kind !== 'opening') {
       throw new SceneValidationError(`architecture ${id} has an unsupported kind`);
     }
@@ -97,10 +111,13 @@ export function parseScene(value: unknown): SceneDocument {
       const id = requireId(element.id, 'opening.id');
       const wallId = requireId(element.wallId, `opening ${id} wallId`);
       if (!wallIds.has(wallId)) throw new SceneValidationError(`opening ${id} references missing wall ${wallId}`);
-      finite(element.offset, `opening ${id} offset`);
-      positive(element.width, `opening ${id} width`);
+      const offset = finite(element.offset, `opening ${id} offset`);
+      if (offset < 0) throw new SceneValidationError(`opening ${id} offset cannot be negative`);
+      const width = positive(element.width, `opening ${id} width`);
+      if (offset + width > (wallLengths.get(wallId) ?? 0) + 0.001) throw new SceneValidationError(`opening ${id} does not fit on wall ${wallId}`);
       positive(element.height, `opening ${id} height`);
-      finite(element.sillHeight, `opening ${id} sillHeight`);
+      const sillHeight = finite(element.sillHeight, `opening ${id} sillHeight`);
+      if (sillHeight < 0) throw new SceneValidationError(`opening ${id} sillHeight cannot be negative`);
     }
   }
 
