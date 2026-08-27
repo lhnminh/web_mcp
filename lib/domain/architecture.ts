@@ -229,7 +229,24 @@ export function roomForPoint(architecture: ArchitecturalElement[], point: Point2
   }, undefined);
 }
 
-export function isExteriorWall(wall: WallElement, bounds: ArchitectureBounds) {
+export function isExteriorWall(wall: WallElement, bounds: ArchitectureBounds, architecture?: ArchitecturalElement[]) {
+  if (architecture) {
+    const rooms = architecture.filter((element): element is RoomElement => element.kind === 'room');
+    if (rooms.length > 0) {
+      const dx = wall.end.x - wall.start.x;
+      const dy = wall.end.y - wall.start.y;
+      const length = Math.hypot(dx, dy);
+      if (length > 0) {
+        const midpoint = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 };
+        const sampleDistance = Math.max(0.02, Math.min(bounds.width, bounds.depth) * 0.003);
+        const normal = { x: (-dy / length) * sampleDistance, y: (dx / length) * sampleDistance };
+        const sideA = rooms.some((room) => pointInRoom({ x: midpoint.x + normal.x, y: midpoint.y + normal.y }, room));
+        const sideB = rooms.some((room) => pointInRoom({ x: midpoint.x - normal.x, y: midpoint.y - normal.y }, room));
+        if (sideA !== sideB) return true;
+        if (sideA && sideB) return false;
+      }
+    }
+  }
   const tolerance = 0.005;
   const on = (value: number, edge: number) => Math.abs(value - edge) <= tolerance;
   return (on(wall.start.x, bounds.minX) && on(wall.end.x, bounds.minX))

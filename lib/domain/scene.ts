@@ -67,6 +67,7 @@ export interface OpeningElement {
   height: number;
   sillHeight: number;
   swing?: 'left' | 'right' | 'none';
+  swingSide?: 'in' | 'out';
 }
 
 export interface FurnitureElement {
