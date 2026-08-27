@@ -3,6 +3,7 @@
 import { FormEvent, KeyboardEvent, PointerEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import type { ArchitecturalElement, OpeningElement, Point2, RoomElement, SceneDocument, WallElement } from '@/lib/domain/scene';
 import { getArchitectureBounds, isExteriorWall, isRectangularRoom, pointInRoom, polygonArea, polygonCentroid, rebuildSceneRooms, resizeSceneFootprint, roomForPoint, wallLength } from '@/lib/domain/architecture';
+import { blankApartmentScene } from '@/lib/domain/demo-scene';
 import ApartmentScene from './ApartmentScene';
 
 type View = 'plan' | 'three' | 'evaluation';
@@ -138,6 +139,7 @@ export default function Home() {
   const [zoom, setZoom] = useState(80);
   const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 });
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const projectRevisionRef = useRef<number | null>(null);
   const projectRef = useRef<ApiProject | null>(null);
   const moveSaveQueue = useRef<Promise<void>>(Promise.resolve());
@@ -581,6 +583,36 @@ export default function Home() {
     setHistoryBusy(false);
   };
 
+  const resetEverything = async () => {
+    if (resetting || !window.confirm('Reset the entire apartment? This removes all furniture, doors, rooms, and custom changes, and cannot be undone.')) return;
+    setResetting(true);
+    await moveSaveQueue.current;
+    const error = await saveScene(structuredClone(blankApartmentScene), 'Everything reset · start again from the blank apartment.', { recordHistory: false });
+    if (!error) {
+      undoStack.current = [];
+      redoStack.current = [];
+      updateHistoryState();
+      setSelected('');
+      setSelectedWallId('');
+      setSelectedOpeningId('');
+      setSelectedRoomId('');
+      setDrawingWall(false);
+      setArchitecturePreview(null);
+      setCollisionMessage('');
+      setCompare(false);
+      setView('plan');
+      setEditMode('architecture');
+      setZoom(80);
+      setHour(14.5);
+      setCamera(0);
+      setCameraReset((value) => value + 1);
+      setShowShadows(true);
+      setShowLightPaths(true);
+      setShowMeasurements(false);
+    }
+    setResetting(false);
+  };
+
   const commitMove = (objectId: string, placement: ObjectPlacement, before: SceneObject) => {
     void before;
     saveObjectTransform(objectId, { position: placement.position, roomId: placement.roomId });
@@ -689,11 +721,11 @@ export default function Home() {
   const selectWall = (id: string) => { setArchitecturePreview(null); setSelectedWallId(id); setSelectedOpeningId(''); setSelectedRoomId(''); setDrawingWall(false); };
   const selectOpening = (id: string, wallId: string) => { setArchitecturePreview(null); setSelectedOpeningId(id); setSelectedWallId(wallId); setSelectedRoomId(''); setDrawingWall(false); };
   const selectRoom = (id: string) => { setArchitecturePreview(null); setSelectedRoomId(id); setSelectedWallId(''); setSelectedOpeningId(''); setDrawingWall(false); };
-  const architectureSuccess = /^(Saving architecture|Wall added|Wall updated|Wall removed|Exterior shape updated|Exterior corner added|Exterior corner removed|Door added|Door updated|Door removed|Room renamed|Apartment resized)/.test(architectureMessage) && !architectureMessage.includes('outside the footprint');
+  const architectureSuccess = /^(Saving architecture|Wall added|Wall updated|Wall removed|Exterior shape updated|Exterior corner added|Exterior corner removed|Door added|Door updated|Door removed|Room renamed|Apartment resized|Everything reset)/.test(architectureMessage) && !architectureMessage.includes('outside the footprint');
 
   return (
     <main className="app-shell">
-      <Header />
+      <Header resetting={resetting} onReset={resetEverything} />
       <ModeBar view={view} compare={compare} editMode={editMode} zoom={zoom} canUndo={!historyBusy && historyState.undo > 0} canRedo={!historyBusy && historyState.redo > 0} onUndo={undo} onRedo={redo} onZoom={setZoom} onView={selectView} onEditMode={(mode) => { setArchitecturePreview(null); setEditMode(mode); }} />
       <div className={`workspace-grid ${compare ? 'is-comparing' : ''} ${view === 'plan' && !compare ? 'plan-builder-grid' : ''}`}>
         {compare ? (
@@ -716,7 +748,7 @@ export default function Home() {
   );
 }
 
-function Header() {
+function Header({ resetting, onReset }: { resetting: boolean; onReset: () => void }) {
   return (
     <header className="topbar">
       <div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><span /></div><div className="brand-name">Dwellwise</div></div>
@@ -727,6 +759,7 @@ function Header() {
       </div>
       <div className="top-actions">
         <span className="saved"><i /> Saved just now</span>
+        <button className="reset-everything-button" onClick={onReset} disabled={resetting}>{resetting ? 'Resetting…' : '↺ Reset everything'}</button>
         {/* Comparison is temporarily hidden while the hackathon demo focuses on 2D, 3D, and sunlight. */}
         <button className="avatar" aria-label="Account">ML</button>
       </div>
@@ -870,7 +903,7 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
 
   const heading = selectedOpening ? 'Door properties' : selectedWall ? 'Wall properties' : drawingWall ? 'Add interior wall' : 'Apartment size';
   const description = selectedOpening ? 'Drag the door along its wall or enter exact dimensions and swing below.'
-    : selectedWall ? exterior ? 'Drag either corner or the highlighted edge to reshape the exterior perimeter.' : 'Drag either endpoint in the plan, or enter exact dimensions below.'
+    : selectedWall ? exterior ? 'Drag either corner or the highlighted edge to reshape the exterior perimeter.' : 'Drag the wall or either endpoint in the plan, or enter exact dimensions below.'
       : drawingWall ? 'Choose a start point and an end point directly on the plan.' : 'Resize the full plan or start drawing a new interior wall.';
 
   const safePreviewWidth = Math.max(width, 0.1);
@@ -904,7 +937,7 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
       ) : selectedWall ? (
         <form onSubmit={saveWall}>
           <div className="selected-wall-badge"><span>{exterior ? 'EXTERIOR' : 'INTERIOR'}</span><strong>{selectedWall.id}</strong></div>
-          <div className="wall-drag-hint"><span>↔</span><p><strong>{exterior ? 'Drag corners or edge' : 'Drag either endpoint'}</strong>Measurements update live and save when released.</p></div>
+          <div className="wall-drag-hint"><span>↔</span><p><strong>{exterior ? 'Drag corners or edge' : 'Drag wall or either endpoint'}</strong>Measurements update live and save when released.</p></div>
           <button type="button" className="add-door-button" disabled={loading || saving} onClick={() => onAddDoor(selectedWall.id)}>＋ Add door</button>
           {exterior && <div className="exterior-corner-actions"><button type="button" onClick={() => onAddExteriorCorner(selectedWall.id)}>＋ Add corner</button><button type="button" onClick={() => onRemoveExteriorCorner(selectedWall.id, 'start')}>− Start corner</button><button type="button" onClick={() => onRemoveExteriorCorner(selectedWall.id, 'end')}>− End corner</button></div>}
           <label className="dimension-control"><span>LENGTH · METERS <small>Start fixed for exact edits</small></span><div><input aria-label="Wall length slider" type="range" min="0.1" max="30" step="0.01" value={wallValues.length} onChange={(event) => changeWallValue('length', Number(event.target.value))} /><input aria-label="Exact wall length" type="number" min="0.1" max="30" step="0.01" value={wallValues.length} onChange={(event) => changeWallValue('length', Number(event.target.value))} /></div></label>
@@ -1090,14 +1123,20 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
   const wallDragAtPoint = (current: WallDragState, raw: Point2): WallDragState => {
     const wall = walls.find((candidate) => candidate.id === current.wallId);
     if (!wall) return current;
+    const exterior = isExteriorWall(wall, bounds, architecture);
     if (current.mode === 'edge') {
-      const delta = { x: Math.round((raw.x - current.pointerStart.x) * 10) / 10, y: Math.round((raw.y - current.pointerStart.y) * 10) / 10 };
+      let delta = { x: Math.round((raw.x - current.pointerStart.x) * 10) / 10, y: Math.round((raw.y - current.pointerStart.y) * 10) / 10 };
+      if (!exterior) {
+        delta = {
+          x: Math.max(bounds.minX - Math.min(current.originStart.x, current.originEnd.x), Math.min(bounds.maxX - Math.max(current.originStart.x, current.originEnd.x), delta.x)),
+          y: Math.max(bounds.minY - Math.min(current.originStart.y, current.originEnd.y), Math.min(bounds.maxY - Math.max(current.originStart.y, current.originEnd.y), delta.y)),
+        };
+      }
       return { ...current, start: { x: current.originStart.x + delta.x, y: current.originStart.y + delta.y }, end: { x: current.originEnd.x + delta.x, y: current.originEnd.y + delta.y } };
     }
     const endpoint = current.endpoint ?? 'end';
     const fixedPoint = endpoint === 'start' ? current.originEnd : current.originStart;
     const movingOrigin = endpoint === 'start' ? current.originStart : current.originEnd;
-    const exterior = isExteriorWall(wall, bounds, architecture);
     const excludedWallIds = new Set(walls.filter((candidate) => candidate.id === wall.id || (exterior && [candidate.start, candidate.end].some((point) => samePoint(point, movingOrigin)))).map((candidate) => candidate.id));
     const snappingArchitecture = architecture.filter((element) => !excludedWallIds.has(element.id));
     const point = snapWallEnd(fixedPoint, raw, snappingArchitecture, bounds, !exterior);
@@ -1159,7 +1198,7 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
   };
 
   const beginWallEdgeDrag = (event: PointerEvent<SVGLineElement>, wall: WallElement) => {
-    if (drawingWall || selectedWallId !== wall.id || !isExteriorWall(wall, bounds, architecture)) return;
+    if (drawingWall || selectedWallId !== wall.id) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1222,7 +1261,7 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
         const originalWall = walls.find((candidate) => candidate.id === wall.id) ?? wall;
         const exterior = isExteriorWall(originalWall, bounds, architecture);
         const selectedWall = editMode === 'architecture' && selectedWallId === wall.id;
-        return <g key={wall.id} className={`architecture-wall ${selectedWall ? 'selected' : ''} ${wallDrag?.wallId === wall.id ? 'dragging' : ''}`} onPointerDown={(event) => { if (!drawingWall && editMode === 'architecture') { event.stopPropagation(); onSelectWall(wall.id); } }}><line className="wall-visible" x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness, 0.07)} /><line className={`wall-hit-target ${selectedWall && exterior ? 'edge-draggable' : ''}`} x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness * 4, 0.28)} onPointerDown={(event) => beginWallEdgeDrag(event, originalWall)} />{selectedWall && <><circle role="button" aria-label="Drag wall start point" className="wall-endpoint-hit" cx={wall.start.x} cy={wall.start.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'start')} /><circle className="wall-endpoint-handle start" pointerEvents="none" cx={wall.start.x} cy={wall.start.y} r={fontSize * 0.5} /><circle role="button" aria-label="Drag wall end point" className="wall-endpoint-hit" cx={wall.end.x} cy={wall.end.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'end')} /><circle className="wall-endpoint-handle end" pointerEvents="none" cx={wall.end.x} cy={wall.end.y} r={fontSize * 0.5} /><text className="wall-length-label" x={(wall.start.x + wall.end.x) / 2} y={(wall.start.y + wall.end.y) / 2 - fontSize * 0.65} fontSize={fontSize * 0.9} textAnchor="middle">{wallLength(wall).toFixed(2)} m · H {wall.height.toFixed(2)} m · {wallDrag?.wallId === wall.id ? 'DRAGGING' : exterior ? 'DRAG CORNERS OR EDGE' : 'DRAG EITHER END'}</text></>}</g>;
+        return <g key={wall.id} className={`architecture-wall ${selectedWall ? 'selected' : ''} ${wallDrag?.wallId === wall.id ? 'dragging' : ''}`} onPointerDown={(event) => { if (!drawingWall && editMode === 'architecture') { event.stopPropagation(); onSelectWall(wall.id); } }}><line className="wall-visible" x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness, 0.07)} /><line className={`wall-hit-target ${selectedWall ? 'edge-draggable' : ''}`} x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness * 4, 0.28)} onPointerDown={(event) => beginWallEdgeDrag(event, originalWall)} />{selectedWall && <><circle role="button" aria-label="Drag wall start point" className="wall-endpoint-hit" cx={wall.start.x} cy={wall.start.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'start')} /><circle className="wall-endpoint-handle start" pointerEvents="none" cx={wall.start.x} cy={wall.start.y} r={fontSize * 0.5} /><circle role="button" aria-label="Drag wall end point" className="wall-endpoint-hit" cx={wall.end.x} cy={wall.end.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'end')} /><circle className="wall-endpoint-handle end" pointerEvents="none" cx={wall.end.x} cy={wall.end.y} r={fontSize * 0.5} /><text className="wall-length-label" x={(wall.start.x + wall.end.x) / 2} y={(wall.start.y + wall.end.y) / 2 - fontSize * 0.65} fontSize={fontSize * 0.9} textAnchor="middle">{wallLength(wall).toFixed(2)} m · H {wall.height.toFixed(2)} m · {wallDrag?.wallId === wall.id ? 'DRAGGING' : exterior ? 'DRAG CORNERS OR EDGE' : 'DRAG WALL OR EITHER END'}</text></>}</g>;
       })}
       {renderedOpenings.map((opening) => {
         const wall = renderedWalls.find((candidate) => candidate.id === opening.wallId);
