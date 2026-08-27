@@ -69,8 +69,7 @@ export default function Home() {
   const [showShadows, setShowShadows] = useState(true);
   const [showLightPaths, setShowLightPaths] = useState(true);
   const [showMeasurements, setShowMeasurements] = useState(false);
-  const [optimized, setOptimized] = useState(false);
-  const [layout, setLayout] = useState<LayoutKey>('A');
+  const layout: LayoutKey = 'A';
   const [projectRevision, setProjectRevision] = useState<number | null>(null);
   const [sceneObjects, setSceneObjects] = useState<Record<LayoutKey, SceneObject[]>>({ A: [], B: [] });
   const [collisionMessage, setCollisionMessage] = useState('');
@@ -106,11 +105,6 @@ export default function Home() {
   const selectView = (next: View) => {
     setCompare(false);
     setView(next);
-  };
-
-  const optimize = () => {
-    setOptimized(true);
-    setLayout('A');
   };
 
   const addObject = async (input: AddObjectInput): Promise<string | null> => {
@@ -178,7 +172,6 @@ export default function Home() {
   };
 
   const applyHistoryObject = (layoutKey: LayoutKey, object: SceneObject) => {
-    setLayout(layoutKey);
     setSelected(object.id);
     setSceneObjects((current) => ({ ...current, [layoutKey]: current[layoutKey].map((item) => item.id === object.id ? object : item) }));
     saveObjectTransform(object.id, { position: { x: object.transform.position.x, z: object.transform.position.z }, rotation: { y: object.transform.rotation.y }, dimensions: object.dimensions, roomId: object.roomId }, layoutKey);
@@ -270,7 +263,7 @@ export default function Home() {
   return (
     <main className="app-shell">
       <Header />
-      <ModeBar view={view} compare={compare} optimized={optimized} zoom={zoom} canUndo={historyVersion >= 0 && undoStack.current.length > 0} canRedo={redoStack.current.length > 0} onUndo={undo} onRedo={redo} onZoom={setZoom} onView={selectView} onOptimize={optimize} />
+      <ModeBar view={view} compare={compare} zoom={zoom} canUndo={historyVersion >= 0 && undoStack.current.length > 0} canRedo={redoStack.current.length > 0} onUndo={undo} onRedo={redo} onZoom={setZoom} onView={selectView} />
       <div className={`workspace-grid ${compare ? 'is-comparing' : ''} ${view === 'plan' && !compare ? 'plan-builder-grid' : ''}`}>
         {compare ? (
           <ComparisonView onBack={() => setCompare(false)} />
@@ -279,8 +272,8 @@ export default function Home() {
             {view === 'plan' && <FurniturePanel selected={selected} onSelect={setSelected} objects={sceneObjects[layout]} />}
             {view === 'three' && <PreviewControls hour={hour} camera={camera} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} onHour={setHour} onCamera={setCamera} onReset={() => setCameraReset((value) => value + 1)} onShadows={setShowShadows} onLightPaths={setShowLightPaths} onMeasurements={setShowMeasurements} />}
             {view === 'evaluation' && <PriorityPanel />}
-            {view === 'plan' && <PlanView selected={selected} onSelect={setSelected} layout={layout} onLayout={setLayout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={collisionMessage} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} />}
-            {view === 'three' && <ThreeDView hour={hour} camera={camera} cameraReset={cameraReset} layout={layout} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} objects={sceneObjects[layout]} onLayout={setLayout} />}
+            {view === 'plan' && <PlanView selected={selected} onSelect={setSelected} layout={layout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={collisionMessage} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} />}
+            {view === 'three' && <ThreeDView hour={hour} camera={camera} cameraReset={cameraReset} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} objects={sceneObjects[layout]} />}
             {view === 'evaluation' && <EvaluationView />}
           </>
         )}
@@ -308,7 +301,7 @@ function Header() {
   );
 }
 
-function ModeBar({ view, compare, optimized, zoom, canUndo, canRedo, onUndo, onRedo, onZoom, onView, onOptimize }: { view: View; compare: boolean; optimized: boolean; zoom: number; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; onZoom: (zoom: number) => void; onView: (view: View) => void; onOptimize: () => void }) {
+function ModeBar({ view, compare, zoom, canUndo, canRedo, onUndo, onRedo, onZoom, onView }: { view: View; compare: boolean; zoom: number; canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void; onZoom: (zoom: number) => void; onView: (view: View) => void }) {
   return (
     <section className="modebar">
       <nav className="view-tabs" aria-label="Apartment views">
@@ -325,7 +318,6 @@ function ModeBar({ view, compare, optimized, zoom, canUndo, canRedo, onUndo, onR
       ) : (
         <div className="view-context">WEIGHTED TO YOUR PRIORITIES</div>
       )}
-      <button className={`agent-run ${optimized ? 'complete' : ''}`} onClick={onOptimize}><span className="spark">{optimized ? '✓' : '✦'}</span>{compare ? 'Re-run comparison' : optimized ? 'Layout optimized' : 'Optimize layout'}</button>
     </section>
   );
 }
@@ -361,12 +353,11 @@ function furnitureVisualKind(item: SceneObject) {
   return 'custom';
 }
 
-function PlanView({ selected, onSelect, layout, onLayout, zoom, objects, collisionMessage, onMove, onCommitMove, onRotate, onDelete }: { selected: string; onSelect: (item: string) => void; layout: LayoutKey; onLayout: (layout: LayoutKey) => void; zoom: number; objects: SceneObject[]; collisionMessage: string; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void }) {
+function PlanView({ selected, onSelect, layout, zoom, objects, collisionMessage, onMove, onCommitMove, onRotate, onDelete }: { selected: string; onSelect: (item: string) => void; layout: LayoutKey; zoom: number; objects: SceneObject[]; collisionMessage: string; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void }) {
   const selectedObject = objects.find((item) => item.id === selected);
   const shared = { selected, onSelect, onMove, onCommitMove };
   return (
     <section className="plan-workspace" aria-label="2D floor plan editor">
-      <div className="layout-switch"><span>LAYOUT</span><button className={layout === 'A' ? 'active' : ''} onClick={() => onLayout('A')}>A</button><button className={layout === 'B' ? 'active' : ''} onClick={() => onLayout('B')}>B</button></div>
       {selectedObject && <div className="object-toolbar" aria-label={`Edit ${selectedObject.name}`}><strong>{selectedObject.name}</strong><button onClick={() => onRotate(selectedObject.id, -90)} aria-label="Rotate left">↶ 90°</button><button onClick={() => onRotate(selectedObject.id, 90)} aria-label="Rotate right">↷ 90°</button><button className="delete-object" onClick={() => onDelete(selectedObject.id)} aria-label={`Remove ${selectedObject.name}`}>Remove</button></div>}
       <div className="drawing-index"><strong>A–01</strong><span>FURNITURE PLAN</span><small>ISSUE 02 · AI STUDY</small></div>
       <div className="north-marker"><span>N</span><i /></div><div className="scale-key"><span /> 5 ft</div>
@@ -663,10 +654,10 @@ function PreviewControls({ hour, camera, shadows, lightPaths, measurements, onHo
   );
 }
 
-function ThreeDView({ hour, camera, cameraReset, layout, shadows, lightPaths, measurements, objects, onLayout }: { hour: number; camera: number; cameraReset: number; layout: 'A' | 'B'; shadows: boolean; lightPaths: boolean; measurements: boolean; objects: SceneObject[]; onLayout: (l: 'A' | 'B') => void }) {
+function ThreeDView({ hour, camera, cameraReset, shadows, lightPaths, measurements, objects }: { hour: number; camera: number; cameraReset: number; shadows: boolean; lightPaths: boolean; measurements: boolean; objects: SceneObject[] }) {
   return (
     <section className="preview-workspace" aria-label="3D apartment preview">
-      <div className="preview-topline"><div><span className="eyebrow">LIVING ROOM · EAST VIEW</span><strong>{timeLabel(hour)}</strong></div><div className="layout-switch floating"><span>LAYOUT</span><button className={layout === 'A' ? 'active' : ''} onClick={() => onLayout('A')}>A</button><button className={layout === 'B' ? 'active' : ''} onClick={() => onLayout('B')}>B</button></div></div>
+      <div className="preview-topline"><div><span className="eyebrow">LIVING ROOM · EAST VIEW</span><strong>{timeLabel(hour)}</strong></div></div>
       <ApartmentScene hour={hour} cameraStep={camera} cameraReset={cameraReset} shadows={shadows} lightPaths={lightPaths} measurements={measurements} objects={objects} />
       <div className="light-meter"><span>DESK DAYLIGHT</span><strong>{Math.round(180 + Math.sin(((hour - 7) / 13) * Math.PI) * 520)} lux</strong><i /></div>
       <div className="sun-timeline"><div /><div className="timeline-track"><div className="daylight-band"><i style={{ left: `${((hour - 7) / 13) * 100}%` }} /></div><div className="time-ticks"><span>7 AM</span><span>10 AM</span><span>1 PM</span><span>4 PM</span><span>8 PM</span></div></div><div /></div>
