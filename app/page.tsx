@@ -1540,6 +1540,7 @@ const objectPresets: Array<AddObjectInput & { shortLabel: string }> = [
   { shortLabel: 'Nightstand', name: 'Nightstand', category: 'storage', roomId: 'bedroom', dimensions: { width: 0.56, depth: 0.46, height: 0.61 } },
   { shortLabel: 'Bookcase', name: 'Bookcase', category: 'storage', roomId: 'living', dimensions: { width: 0.91, depth: 0.35, height: 1.83 } },
   { shortLabel: 'Coffee table', name: 'Coffee table', category: 'table', roomId: 'living', dimensions: { width: 1.07, depth: 0.61, height: 0.43 } },
+  { shortLabel: 'Object', name: 'Custom object', category: 'other', roomId: 'living', dimensions: { width: 0.8, depth: 0.8, height: 0.8 } },
 ];
 
 function DimensionPreview({ name, dimensions }: { name: string; dimensions: SceneObject['dimensions'] }) {
