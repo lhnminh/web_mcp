@@ -2,7 +2,7 @@
 
 import { ContactShadows, OrbitControls, RoundedBox } from '@react-three/drei';
 import { Canvas, useThree } from '@react-three/fiber';
-import { type ReactNode, useEffect, useMemo, useRef } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ArchitecturalElement, OpeningElement, RoomElement, WallElement } from '@/lib/domain/scene';
 import { getArchitectureBounds, wallLength } from '@/lib/domain/architecture';
 import * as THREE from 'three';
@@ -18,6 +18,7 @@ type SceneObject = {
 };
 
 type ApartmentSceneProps = {
+  projectId: string;
   hour: number;
   cameraStep: number;
   cameraReset: number;
@@ -26,6 +27,11 @@ type ApartmentSceneProps = {
   measurements: boolean;
   objects: SceneObject[];
   architecture: ArchitecturalElement[];
+};
+
+type CameraViewState = {
+  position: [number, number, number];
+  target: [number, number, number];
 };
 
 const palette = {
@@ -41,20 +47,72 @@ const palette = {
   brass: '#b88a4f',
 };
 
-function CameraController({ step, reset, architecture }: { step: number; reset: number; architecture: ArchitecturalElement[] }) {
+const CAMERA_CONTROL_POLAR_ANGLE = THREE.MathUtils.degToRad(0.5);
+
+function isVectorTuple(value: unknown): value is [number, number, number] {
+  return Array.isArray(value) && value.length === 3 && value.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate));
+}
+
+function readSessionCamera(storageKey: string): CameraViewState | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const value = JSON.parse(window.sessionStorage.getItem(storageKey) ?? 'null') as Partial<CameraViewState> | null;
+    return value && isVectorTuple(value.position) && isVectorTuple(value.target) ? { position: value.position, target: value.target } : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionCamera(storageKey: string, state: CameraViewState) {
+  try {
+    window.sessionStorage.setItem(storageKey, JSON.stringify(state));
+  } catch {
+    // The camera remains usable when browser storage is unavailable.
+  }
+}
+
+function getTopDownCamera(architecture: ArchitecturalElement[], step: number) {
+  const bounds = getArchitectureBounds(architecture);
+  const angle = THREE.MathUtils.degToRad(90 + step * 12);
+  const distance = Math.max(8, Math.max(bounds.width, bounds.depth) * 1.55);
+  const polarAngle = step === 0 ? 0 : CAMERA_CONTROL_POLAR_ANGLE;
+  const horizontalOffset = Math.sin(polarAngle) * distance;
+  const target = new THREE.Vector3((bounds.minX + bounds.maxX) / 2, 0.85, (bounds.minY + bounds.maxY) / 2);
+
+  return {
+    target,
+    position: new THREE.Vector3(
+      target.x + Math.cos(angle) * horizontalOffset,
+      target.y + Math.cos(polarAngle) * distance,
+      target.z + Math.sin(angle) * horizontalOffset,
+    ),
+  };
+}
+
+function CameraController({ step, reset, architecture, initialState, onCameraChange }: { step: number; reset: number; architecture: ArchitecturalElement[]; initialState: CameraViewState | null; onCameraChange: (state: CameraViewState) => void }) {
   const controls = useRef<OrbitControlsImpl>(null);
+  const initialized = useRef(false);
+  const previousPreset = useRef({ step, reset });
   const { camera } = useThree();
   const bounds = useMemo(() => getArchitectureBounds(architecture), [architecture]);
 
   useEffect(() => {
-    const angle = THREE.MathUtils.degToRad(-38 + step * 12);
-    const radius = Math.max(8, Math.max(bounds.width, bounds.depth) * 1.35);
-    const target = new THREE.Vector3((bounds.minX + bounds.maxX) / 2, 0.85, (bounds.minY + bounds.maxY) / 2);
-    camera.position.set(target.x + Math.cos(angle) * radius, Math.max(5.5, radius * 0.58), target.z + Math.sin(angle) * radius);
-    camera.lookAt(target);
-    controls.current?.target.copy(target);
+    const resetChanged = reset !== previousPreset.current.reset;
+    const stepChanged = step !== previousPreset.current.step;
+    if (initialized.current && !resetChanged && !stepChanged) return;
+
+    const preset = !initialized.current && initialState
+      ? { position: new THREE.Vector3(...initialState.position), target: new THREE.Vector3(...initialState.target) }
+      : getTopDownCamera(architecture, resetChanged ? 0 : step);
+    camera.position.copy(preset.position);
+    camera.lookAt(preset.target);
+    controls.current?.target.copy(preset.target);
     controls.current?.update();
-  }, [bounds, camera, reset, step]);
+    previousPreset.current = { step, reset };
+    initialized.current = true;
+  }, [architecture, camera, initialState, reset, step]);
+
+  const target = initialState?.target ?? [(bounds.minX + bounds.maxX) / 2, 0.85, (bounds.minY + bounds.maxY) / 2];
 
   return (
     <OrbitControls
@@ -64,10 +122,17 @@ function CameraController({ step, reset, architecture }: { step: number; reset: 
       dampingFactor={0.07}
       minDistance={Math.max(3, Math.min(bounds.width, bounds.depth) * 0.6)}
       maxDistance={Math.max(17, Math.max(bounds.width, bounds.depth) * 2.4)}
-      minPolarAngle={0.3}
+      minPolarAngle={0}
       maxPolarAngle={Math.PI / 2.08}
       screenSpacePanning={false}
-      target={[(bounds.minX + bounds.maxX) / 2, 0.85, (bounds.minY + bounds.maxY) / 2]}
+      target={target}
+      onChange={() => {
+        if (!controls.current) return;
+        onCameraChange({
+          position: camera.position.toArray(),
+          target: controls.current.target.toArray(),
+        });
+      }}
     />
   );
 }
@@ -308,7 +373,7 @@ function Sunlight({ hour, shadows, lightPaths }: { hour: number; shadows: boolea
   );
 }
 
-function Scene({ hour, shadows, lightPaths, measurements, objects, architecture }: Omit<ApartmentSceneProps, 'cameraStep' | 'cameraReset'>) {
+function Scene({ hour, shadows, lightPaths, measurements, objects, architecture }: Omit<ApartmentSceneProps, 'projectId' | 'cameraStep' | 'cameraReset'>) {
   const bounds = getArchitectureBounds(architecture);
   return (
     <>
@@ -324,14 +389,39 @@ function Scene({ hour, shadows, lightPaths, measurements, objects, architecture 
 }
 
 export default function ApartmentScene(props: ApartmentSceneProps) {
+  const storageKey = `dwellwise:3d-camera:${props.projectId}`;
+  const [savedCamera] = useState<CameraViewState | null>(() => readSessionCamera(storageKey));
+  const defaultCamera = getTopDownCamera(props.architecture, 0);
+  const initialCamera = savedCamera ?? {
+    position: defaultCamera.position.toArray(),
+    target: defaultCamera.target.toArray(),
+  };
+  const pendingCamera = useRef<CameraViewState | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveCamera = useCallback((state: CameraViewState) => {
+    pendingCamera.current = state;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      writeSessionCamera(storageKey, state);
+      pendingCamera.current = null;
+      saveTimer.current = null;
+    }, 120);
+  }, [storageKey]);
+
+  useEffect(() => () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    if (pendingCamera.current) writeSessionCamera(storageKey, pendingCamera.current);
+  }, [storageKey]);
+
   return (
     <div className="three-canvas" role="img" aria-label="Interactive three-dimensional apartment model. Drag to orbit, scroll to zoom, and right-drag to pan.">
       <Canvas
         shadows={props.shadows}
         dpr={[1, 1.75]}
-        camera={{ position: [10.8, 6.2, 9.2], fov: 42, near: 0.1, far: 100 }}
+        camera={{ position: initialCamera.position, fov: 42, near: 0.1, far: 100 }}
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
-        onCreated={({ gl }) => {
+        onCreated={({ camera, gl }) => {
+          camera.lookAt(new THREE.Vector3(...initialCamera.target));
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = 1.05;
           gl.outputColorSpace = THREE.SRGBColorSpace;
@@ -345,7 +435,7 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
           objects={props.objects}
           architecture={props.architecture}
         />
-        <CameraController step={props.cameraStep} reset={props.cameraReset} architecture={props.architecture} />
+        <CameraController step={props.cameraStep} reset={props.cameraReset} architecture={props.architecture} initialState={savedCamera} onCameraChange={saveCamera} />
       </Canvas>
       <div className="canvas-help"><span>DRAG</span> orbit <i /> <span>SCROLL</span> zoom <i /> <span>RIGHT-DRAG</span> pan</div>
     </div>
