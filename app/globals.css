@@ -265,3 +265,18 @@
 .app-shell .comparison-metric em,
 .app-shell .final-recommendation span { font-size: var(--editor-text-micro); }
 .app-shell .final-recommendation p { font-size: var(--editor-text-label); }
+
+/* Window opening controls */
+.opening-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.opening-actions .add-door-button,
+.add-window-button { height: 36px; border: 0; background: #315f77; color: #fff; font-family: inherit; font-size: 7px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.add-window-button { background: #568394; }
+.add-window-button:disabled { opacity: .45; cursor: not-allowed; }
+.architecture-window .window-gap { stroke: #f7f4ea; stroke-linecap: butt; }
+.architecture-window .window-frame { stroke: #5f9da9; stroke-width: .035; pointer-events: none; }
+.architecture-window .window-hit-target { stroke: transparent; cursor: pointer; touch-action: none; }
+.architecture-window .window-grab-handle { fill: #fbfaef; stroke: #5f9da9; stroke-width: .035; cursor: grab; touch-action: none; }
+.architecture-window.selected .window-frame { stroke: var(--accent); }
+.architecture-window.selected .window-grab-handle { fill: #f4cabe; stroke: var(--accent); }
+.architecture-window.dragging .window-hit-target,
+.architecture-window.dragging .window-grab-handle { cursor: grabbing; }

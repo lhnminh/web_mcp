@@ -156,6 +156,25 @@ function Wall({ position, size, rotation }: { position: [number, number, number]
   return <Box position={position} size={size} rotation={rotation} color={palette.wall} radius={0.015} />;
 }
 
+function WindowInsert({ opening, wall, angle, center }: { opening: OpeningElement; wall: WallElement; angle: number; center: { x: number; y: number } }) {
+  const frame = Math.min(0.07, opening.width / 5, opening.height / 5);
+  const innerWidth = Math.max(0.02, opening.width - frame * 2);
+  const innerHeight = Math.max(0.02, opening.height - frame * 2);
+  const depth = wall.thickness + 0.035;
+  return (
+    <group position={[center.x, opening.sillHeight + opening.height / 2, center.y]} rotation={[0, -angle, 0]}>
+      <Box position={[-opening.width / 2 + frame / 2, 0, 0]} size={[frame, opening.height, depth]} color={palette.trim} radius={0.008} />
+      <Box position={[opening.width / 2 - frame / 2, 0, 0]} size={[frame, opening.height, depth]} color={palette.trim} radius={0.008} />
+      <Box position={[0, opening.height / 2 - frame / 2, 0]} size={[innerWidth, frame, depth]} color={palette.trim} radius={0.008} />
+      <Box position={[0, -opening.height / 2 + frame / 2, 0]} size={[innerWidth, frame, depth]} color={palette.trim} radius={0.008} />
+      <mesh position={[0, 0, 0]} castShadow receiveShadow>
+        <boxGeometry args={[innerWidth, innerHeight, 0.012]} />
+        <meshPhysicalMaterial color="#a9ced8" transparent opacity={0.38} roughness={0.12} transmission={0.18} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
+  );
+}
+
 function RoomFloor({ room, index }: { room: RoomElement; index: number }) {
   const geometry = useMemo(() => {
     const shape = new THREE.Shape();
@@ -196,7 +215,7 @@ function SceneWall({ wall, openings }: { wall: WallElement; openings: OpeningEle
     cursor = opening.offset + opening.width;
   });
   pieces.push(part('after', cursor, length - cursor, 0, wall.height));
-  return <group>{pieces}</group>;
+  return <group>{pieces}{sorted.filter((opening) => opening.openingType === 'window').map((opening) => <WindowInsert key={`${opening.id}-insert`} opening={opening} wall={wall} angle={angle} center={pointAt(opening.offset + opening.width / 2)} />)}</group>;
 }
 
 function Architecture({ measurements, architecture }: { measurements: boolean; architecture: ArchitecturalElement[] }) {

@@ -77,6 +77,7 @@ export function parseScene(value: unknown): SceneDocument {
   const roomIds = new Set<string>();
   const wallIds = new Set<string>();
   const wallLengths = new Map<string, number>();
+  const wallHeights = new Map<string, number>();
   for (const [index, element] of value.architecture.entries()) {
     if (!isRecord(element)) throw new SceneValidationError(`architecture[${index}] must be an object`);
     const id = requireId(element.id, `architecture[${index}].id`);
@@ -101,6 +102,7 @@ export function parseScene(value: unknown): SceneDocument {
       if (thickness < 0.05 || thickness > 0.5) throw new SceneValidationError(`wall ${id} thickness must be between 0.05 and 0.5 meters`);
       const height = positive(element.height, `wall ${id} height`);
       if (height < 1.8 || height > 6) throw new SceneValidationError(`wall ${id} height must be between 1.8 and 6 meters`);
+      wallHeights.set(id, height);
     } else if (element.kind !== 'opening') {
       throw new SceneValidationError(`architecture ${id} has an unsupported kind`);
     }
@@ -111,13 +113,15 @@ export function parseScene(value: unknown): SceneDocument {
       const id = requireId(element.id, 'opening.id');
       const wallId = requireId(element.wallId, `opening ${id} wallId`);
       if (!wallIds.has(wallId)) throw new SceneValidationError(`opening ${id} references missing wall ${wallId}`);
+      if (element.openingType !== 'door' && element.openingType !== 'window') throw new SceneValidationError(`opening ${id} must be a door or window`);
       const offset = finite(element.offset, `opening ${id} offset`);
       if (offset < 0) throw new SceneValidationError(`opening ${id} offset cannot be negative`);
       const width = positive(element.width, `opening ${id} width`);
       if (offset + width > (wallLengths.get(wallId) ?? 0) + 0.001) throw new SceneValidationError(`opening ${id} does not fit on wall ${wallId}`);
-      positive(element.height, `opening ${id} height`);
+      const height = positive(element.height, `opening ${id} height`);
       const sillHeight = finite(element.sillHeight, `opening ${id} sillHeight`);
       if (sillHeight < 0) throw new SceneValidationError(`opening ${id} sillHeight cannot be negative`);
+      if (sillHeight + height > (wallHeights.get(wallId) ?? 0) + 0.001) throw new SceneValidationError(`opening ${id} does not fit within wall ${wallId} height`);
     }
   }
 
