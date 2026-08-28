@@ -5,7 +5,7 @@ import Link from 'next/link';
 import type { ArchitecturalElement, OpeningElement, Point2, RoomElement, SceneDocument, WallElement } from '@/lib/domain/scene';
 import { getArchitectureBounds, isExteriorWall, isRectangularRoom, pointInRoom, polygonArea, polygonCentroid, rebuildSceneRooms, resizeSceneFootprint, roomForPoint, wallLength } from '@/lib/domain/architecture';
 import { blankApartmentScene } from '@/lib/domain/demo-scene';
-import { getWindowExposureSummary } from '@/lib/domain/sunlight';
+import { getWindowExposureSummary, northAngleForPlanFacing, planFacingFromNorthAngle, type CardinalDirection } from '@/lib/domain/sunlight';
 import ApartmentScene from './ApartmentScene';
 import { getFurnitureKind } from '@/lib/domain/furniture';
 import { useWebMcpTools } from '@/app/hooks/use-webmcp-tools';
@@ -265,6 +265,16 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     const error = await saveScene(rebuildSceneRooms(resizeApartmentScene(current.scene, width, depth, height)), `Apartment resized to ${width.toFixed(2)} × ${depth.toFixed(2)} × ${height.toFixed(2)} m.`, { signal });
     if (!error) setArchitecturePreview(null);
     return error;
+  };
+
+  const updatePlanOrientation = async (direction: CardinalDirection) => {
+    await moveSaveQueue.current;
+    const current = projectRef.current;
+    if (!current) return 'The project is still loading.';
+    const northAngle = northAngleForPlanFacing(direction);
+    if (current.scene.northAngle === northAngle) return null;
+    const directionName = { N: 'north', E: 'east', S: 'south', W: 'west' }[direction];
+    return saveScene({ ...current.scene, northAngle }, `Orientation set · top of plan faces ${directionName}.`);
   };
 
   const addWall = async (start: Point2, end: Point2) => {
@@ -960,7 +970,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   }), Boolean(project));
   /* eslint-enable react-hooks/refs */
 
-  const architectureSuccess = /^(Saving architecture|Wall added|Wall updated|Wall removed|Exterior shape updated|Exterior corner added|Exterior corner removed|Door added|Door updated|Door removed|Window added|Window updated|Window removed|Room renamed|Apartment resized|Everything reset)/.test(architectureMessage) && !architectureMessage.includes('outside the footprint');
+  const architectureSuccess = /^(Saving architecture|Wall added|Wall updated|Wall removed|Exterior shape updated|Exterior corner added|Exterior corner removed|Door added|Door updated|Door removed|Window added|Window updated|Window removed|Room renamed|Apartment resized|Orientation set|Everything reset)/.test(architectureMessage) && !architectureMessage.includes('outside the footprint');
 
   if (projectLoadError) {
     return (
@@ -988,7 +998,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
             {view === 'plan' && editMode === 'architecture' && <ArchitecturePanel architecture={displayedArchitecture} selectedWallId={selectedWallId} selectedRoomId={selectedRoomId} onSelectWall={selectWall} onSelectRoom={selectRoom} onRenameRoom={renameRoom} />}
             {view === 'three' && <PreviewControls hour={hour} camera={camera} northAngle={project.scene.northAngle} architecture={displayedArchitecture} measurements={showMeasurements} onHour={setHour} onCamera={setCamera} onReset={() => setCameraReset((value) => value + 1)} onMeasurements={setShowMeasurements} />}
             {view === 'evaluation' && <PriorityPanel />}
-            {view === 'plan' && <PlanView editMode={editMode} architecture={displayedArchitecture} selectedWallId={selectedWallId} selectedOpeningId={selectedOpeningId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} selected={selected} onSelect={setSelected} onSelectWall={selectWall} onSelectOpening={selectOpening} onSelectRoom={selectRoom} layout={layout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={editMode === 'architecture' ? architectureMessage : collisionMessage} statusError={editMode === 'architecture' ? Boolean(architectureMessage) && !architectureSuccess : Boolean(collisionMessage)} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} onAddWall={addWall} onUpdateWall={updateWall} onUpdateOpening={updateOpening} />}
+            {view === 'plan' && <PlanView northAngle={project.scene.northAngle} onOrientation={updatePlanOrientation} editMode={editMode} architecture={displayedArchitecture} selectedWallId={selectedWallId} selectedOpeningId={selectedOpeningId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} selected={selected} onSelect={setSelected} onSelectWall={selectWall} onSelectOpening={selectOpening} onSelectRoom={selectRoom} layout={layout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={editMode === 'architecture' ? architectureMessage : collisionMessage} statusError={editMode === 'architecture' ? Boolean(architectureMessage) && !architectureSuccess : Boolean(collisionMessage)} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} onAddWall={addWall} onUpdateWall={updateWall} onUpdateOpening={updateOpening} />}
             {view === 'three' && <ThreeDView hour={hour} northAngle={project.scene.northAngle} camera={camera} cameraReset={cameraReset} measurements={showMeasurements} objects={sceneObjects[layout]} architecture={displayedArchitecture} />}
             {view === 'evaluation' && <EvaluationView />}
           </>
@@ -1063,7 +1073,7 @@ function ModeBar({ view, compare, editMode, zoom, canUndo, canRedo, onUndo, onRe
       {compare ? (
         <div className="comparison-mode-title"><span className="split-icon" /> SIDE-BY-SIDE DECISION</div>
       ) : view === 'plan' ? (
-        <div className="plan-tools"><button aria-label="Undo last change" onClick={onUndo} disabled={!canUndo}>↶</button><button aria-label="Redo last change" onClick={onRedo} disabled={!canRedo}>↷</button><span /><button aria-label="Zoom out" onClick={() => onZoom(Math.max(50, zoom - 5))} disabled={zoom <= 50}>−</button><strong>{zoom}%</strong><button aria-label="Zoom in" onClick={() => onZoom(Math.min(120, zoom + 5))} disabled={zoom >= 120}>+</button></div>
+        <div className="plan-tools"><button aria-label="Undo last change" onClick={onUndo} disabled={!canUndo}>↶</button><button aria-label="Redo last change" onClick={onRedo} disabled={!canRedo}>↷</button><div className="zoom-tools"><button aria-label="Zoom out" onClick={() => onZoom(Math.max(50, zoom - 5))} disabled={zoom <= 50}>−</button><strong>{zoom}%</strong><button aria-label="Zoom in" onClick={() => onZoom(Math.min(120, zoom + 5))} disabled={zoom >= 120}>+</button></div></div>
       ) : view === 'three' ? (
         <div className="view-context">ORIENTATION-AWARE VISUAL PREVIEW</div>
       ) : (
@@ -1306,7 +1316,43 @@ function FurnitureGlyph({ category, name, compact = false }: { category: string;
   );
 }
 
-function PlanView({ editMode, architecture, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, selected, onSelect, onSelectWall, onSelectOpening, onSelectRoom, layout, zoom, objects, collisionMessage, statusError, onMove, onCommitMove, onRotate, onDelete, onAddWall, onUpdateWall, onUpdateOpening }: { editMode: EditMode; architecture: ArchitecturalElement[]; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; selected: string; onSelect: (item: string) => void; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; layout: LayoutKey; zoom: number; objects: SceneObject[]; collisionMessage: string; statusError: boolean; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<void>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<boolean>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<boolean> }) {
+function PlanCompass({ northAngle, onOrientation }: { northAngle: number; onOrientation: (direction: CardinalDirection) => Promise<string | null> }) {
+  const [saving, setSaving] = useState(false);
+  const directions = [
+    { key: 'N' as const, name: 'north' },
+    { key: 'E' as const, name: 'east' },
+    { key: 'S' as const, name: 'south' },
+    { key: 'W' as const, name: 'west' },
+  ];
+  const selected = planFacingFromNorthAngle(northAngle);
+  const selectedIndex = directions.findIndex((direction) => direction.key === selected);
+  const dialDirections = directions.map((_, offset) => directions[(selectedIndex + offset) % directions.length].key);
+  const northNeedleAngle = dialDirections.indexOf('N') * 90;
+  const choose = async (direction: CardinalDirection) => {
+    if (saving || direction === selected) return;
+    setSaving(true);
+    await onOrientation(direction);
+    setSaving(false);
+  };
+  return (
+    <section className="plan-compass" aria-label="Floor plan orientation">
+      <span className="compass-title">PLAN ORIENTATION</span>
+      <div className="compass-dial" aria-hidden="true">
+        <span className="compass-ticks">{[30, 60, 120, 150, 210, 240, 300, 330].map((angle) => <span key={angle} style={{ transform: `translate(-50%, -50%) rotate(${angle}deg)` }} />)}</span>
+        <span className="compass-heading-marker" />
+        <i className={`compass-n${dialDirections[0] === 'N' ? ' is-north' : ''}`}>{dialDirections[0]}</i><i className={`compass-e${dialDirections[1] === 'N' ? ' is-north' : ''}`}>{dialDirections[1]}</i><i className={`compass-s${dialDirections[2] === 'N' ? ' is-north' : ''}`}>{dialDirections[2]}</i><i className={`compass-w${dialDirections[3] === 'N' ? ' is-north' : ''}`}>{dialDirections[3]}</i>
+        <b className="compass-needle" style={{ transform: `translate(-50%, -50%) rotate(${northNeedleAngle}deg)` }} />
+        <em />
+      </div>
+      <span className="compass-question">TOP OF PLAN FACES</span>
+      <div className="compass-options" role="group" aria-label="Direction faced by the top of the floor plan">
+        {directions.map((direction) => <button type="button" key={direction.key} className={selected === direction.key ? 'active' : ''} aria-pressed={selected === direction.key} aria-label={`Set top of floor plan to face ${direction.name}`} disabled={saving} onClick={() => choose(direction.key)}>{direction.key}</button>)}
+      </div>
+    </section>
+  );
+}
+
+function PlanView({ northAngle, onOrientation, editMode, architecture, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, selected, onSelect, onSelectWall, onSelectOpening, onSelectRoom, layout, zoom, objects, collisionMessage, statusError, onMove, onCommitMove, onRotate, onDelete, onAddWall, onUpdateWall, onUpdateOpening }: { northAngle: number; onOrientation: (direction: CardinalDirection) => Promise<string | null>; editMode: EditMode; architecture: ArchitecturalElement[]; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; selected: string; onSelect: (item: string) => void; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; layout: LayoutKey; zoom: number; objects: SceneObject[]; collisionMessage: string; statusError: boolean; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<void>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<boolean>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<boolean> }) {
   const selectedObject = objects.find((item) => item.id === selected);
   const bounds = getArchitectureBounds(architecture);
   const frame = planFrameSize(bounds.width, bounds.depth);
@@ -1314,8 +1360,7 @@ function PlanView({ editMode, architecture, selectedWallId, selectedOpeningId, s
   return (
     <section className={`plan-workspace edit-${editMode}`} aria-label="2D floor plan editor">
       {editMode === 'furnish' && selectedObject && <div className="object-toolbar" aria-label={`Edit ${selectedObject.name}`}><strong>{selectedObject.name}</strong><button onClick={() => onRotate(selectedObject.id, -90)} aria-label="Rotate left">↶ 90°</button><button onClick={() => onRotate(selectedObject.id, 90)} aria-label="Rotate right">↷ 90°</button><button className="delete-object" onClick={() => onDelete(selectedObject.id)} aria-label={`Remove ${selectedObject.name}`}>Remove</button></div>}
-      <div className="drawing-index"><strong>A–01</strong><span>FURNITURE PLAN</span><small>ISSUE 02 · AI STUDY</small></div>
-      <div className="north-marker"><span>N</span><i /></div><div className="scale-key"><span /> 5 ft</div>
+      <PlanCompass northAngle={northAngle} onOrientation={onOrientation} />
       <div className={`floor-plan-wrap layout-${layout.toLowerCase()}`} style={{ transform: `translate(-50%, -49%) scale(${zoom / 100})` }}>
         <div className="geometry-measure top" style={{ width: frame.width }}>{bounds.width.toFixed(2)} m</div><div className="geometry-measure left" style={{ height: frame.height }}>{bounds.depth.toFixed(2)} m</div>
         <div className="floor-plan geometry-plan" style={{ width: frame.width, height: frame.height }}>
@@ -1323,7 +1368,7 @@ function PlanView({ editMode, architecture, selectedWallId, selectedOpeningId, s
           {editMode === 'furnish' && objects.map((item) => <PlanFurniture key={item.id} item={item} {...shared} />)}
         </div>
       </div>
-      <div className={`plan-status ${statusError ? 'has-collision' : ''}`} role="status"><span className={statusError ? 'status-collision' : 'status-good'}>{collisionMessage ? `${statusError ? '⚠' : '✓'} ${collisionMessage}` : editMode === 'architecture' ? '✓ Architecture is valid' : '✓ No furniture collisions'}</span><span>{editMode === 'architecture' ? drawingWall ? 'Click two points to add a wall · Escape cancels' : 'Drag wall corners, exterior edges, or doors directly in the plan' : 'Drag anywhere in the apartment · arrows move · toolbar rotates/removes'}</span></div>
+      <div className={`plan-status ${statusError ? 'has-collision' : ''} ${editMode === 'furnish' ? 'is-compact' : ''}`} role="status"><span className={statusError ? 'status-collision' : 'status-good'}>{collisionMessage ? `${statusError ? '⚠' : '✓'} ${collisionMessage}` : editMode === 'architecture' ? '✓ Architecture is valid' : '✓ No furniture collisions'}</span>{editMode === 'architecture' && <span>{drawingWall ? 'Click two points to add a wall · Escape cancels' : 'Drag wall corners, exterior edges, or doors directly in the plan'}</span>}</div>
     </section>
   );
 }
