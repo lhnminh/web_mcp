@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { ArchitecturalElement, OpeningElement, Point2, RoomElement, SceneDocument, WallElement } from '@/lib/domain/scene';
 import { getArchitectureBounds, isExteriorWall, isRectangularRoom, pointInRoom, polygonArea, polygonCentroid, rebuildSceneRooms, resizeSceneFootprint, roomForPoint, wallLength } from '@/lib/domain/architecture';
 import { blankApartmentScene } from '@/lib/domain/demo-scene';
+import { getWindowExposureSummary } from '@/lib/domain/sunlight';
 import ApartmentScene from './ApartmentScene';
 
 type View = 'plan' | 'three' | 'evaluation';
@@ -147,8 +148,6 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   const [hour, setHour] = useState(14.5);
   const [camera, setCamera] = useState(0);
   const [cameraReset, setCameraReset] = useState(0);
-  const [showShadows, setShowShadows] = useState(true);
-  const [showLightPaths, setShowLightPaths] = useState(true);
   const [showMeasurements, setShowMeasurements] = useState(false);
   const layout: LayoutKey = 'A';
   const [projectRevision, setProjectRevision] = useState<number | null>(null);
@@ -671,8 +670,6 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       setHour(14.5);
       setCamera(0);
       setCameraReset((value) => value + 1);
-      setShowShadows(true);
-      setShowLightPaths(true);
       setShowMeasurements(false);
     }
     setResetting(false);
@@ -812,10 +809,10 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
           <>
             {view === 'plan' && editMode === 'furnish' && <FurniturePanel selected={selected} onSelect={setSelected} objects={sceneObjects[layout]} />}
             {view === 'plan' && editMode === 'architecture' && <ArchitecturePanel architecture={displayedArchitecture} selectedWallId={selectedWallId} selectedRoomId={selectedRoomId} onSelectWall={selectWall} onSelectRoom={selectRoom} onRenameRoom={renameRoom} />}
-            {view === 'three' && <PreviewControls hour={hour} camera={camera} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} onHour={setHour} onCamera={setCamera} onReset={() => setCameraReset((value) => value + 1)} onShadows={setShowShadows} onLightPaths={setShowLightPaths} onMeasurements={setShowMeasurements} />}
+            {view === 'three' && <PreviewControls hour={hour} camera={camera} northAngle={project.scene.northAngle} architecture={displayedArchitecture} measurements={showMeasurements} onHour={setHour} onCamera={setCamera} onReset={() => setCameraReset((value) => value + 1)} onMeasurements={setShowMeasurements} />}
             {view === 'evaluation' && <PriorityPanel />}
             {view === 'plan' && <PlanView editMode={editMode} architecture={displayedArchitecture} selectedWallId={selectedWallId} selectedOpeningId={selectedOpeningId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} selected={selected} onSelect={setSelected} onSelectWall={selectWall} onSelectOpening={selectOpening} onSelectRoom={selectRoom} layout={layout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={editMode === 'architecture' ? architectureMessage : collisionMessage} statusError={editMode === 'architecture' ? Boolean(architectureMessage) && !architectureSuccess : Boolean(collisionMessage)} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} onAddWall={addWall} onUpdateWall={updateWall} onUpdateOpening={updateOpening} />}
-            {view === 'three' && <ThreeDView projectId={project.id} hour={hour} camera={camera} cameraReset={cameraReset} shadows={showShadows} lightPaths={showLightPaths} measurements={showMeasurements} objects={sceneObjects[layout]} architecture={displayedArchitecture} />}
+            {view === 'three' && <ThreeDView projectId={project.id} hour={hour} northAngle={project.scene.northAngle} camera={camera} cameraReset={cameraReset} measurements={showMeasurements} objects={sceneObjects[layout]} architecture={displayedArchitecture} />}
             {view === 'evaluation' && <EvaluationView />}
           </>
         )}
@@ -891,7 +888,7 @@ function ModeBar({ view, compare, editMode, zoom, canUndo, canRedo, onUndo, onRe
       ) : view === 'plan' ? (
         <div className="plan-tools"><button aria-label="Undo last change" onClick={onUndo} disabled={!canUndo}>↶</button><button aria-label="Redo last change" onClick={onRedo} disabled={!canRedo}>↷</button><span /><button aria-label="Zoom out" onClick={() => onZoom(Math.max(50, zoom - 5))} disabled={zoom <= 50}>−</button><strong>{zoom}%</strong><button aria-label="Zoom in" onClick={() => onZoom(Math.min(120, zoom + 5))} disabled={zoom >= 120}>+</button></div>
       ) : view === 'three' ? (
-        <div className="view-context">LIVE SUN STUDY · MAY 12</div>
+        <div className="view-context">ORIENTATION-AWARE VISUAL PREVIEW</div>
       ) : (
         <div className="view-context">WEIGHTED TO YOUR PRIORITIES</div>
       )}
@@ -1744,24 +1741,24 @@ function formatDimensions(dimensions: SceneObject['dimensions']) {
   return `${dimensions.width.toFixed(2)} × ${dimensions.depth.toFixed(2)} m`;
 }
 
-function PreviewControls({ hour, camera, shadows, lightPaths, measurements, onHour, onCamera, onReset, onShadows, onLightPaths, onMeasurements }: { hour: number; camera: number; shadows: boolean; lightPaths: boolean; measurements: boolean; onHour: (n: number) => void; onCamera: (n: number) => void; onReset: () => void; onShadows: (value: boolean) => void; onLightPaths: (value: boolean) => void; onMeasurements: (value: boolean) => void }) {
+function PreviewControls({ hour, camera, northAngle, architecture, measurements, onHour, onCamera, onReset, onMeasurements }: { hour: number; camera: number; northAngle: number; architecture: ArchitecturalElement[]; measurements: boolean; onHour: (n: number) => void; onCamera: (n: number) => void; onReset: () => void; onMeasurements: (value: boolean) => void }) {
+  const exposure = getWindowExposureSummary(architecture, northAngle);
   return (
     <aside className="library-panel preview-controls">
       <div className="panel-heading"><div><span className="eyebrow">3D MODEL</span><h2>View controls</h2></div><span className="live-badge"><i /> LIVE</span></div>
       <div className="control-section"><label>CAMERA ANGLE <span>{camera > 0 ? '+' : ''}{camera * 12}°</span></label><div className="camera-pad"><button onClick={() => onCamera(Math.max(-2, camera - 1))} aria-label="Rotate camera left">↶</button><div className={`camera-orbit orbit-${camera}`}><i /><span /></div><button onClick={() => onCamera(Math.min(2, camera + 1))} aria-label="Rotate camera right">↷</button></div><button className="wide-control" onClick={() => { onCamera(0); onReset(); }}>Reset perspective</button></div>
-      <div className="control-section daylight-control"><label>SUNLIGHT <span>{timeLabel(hour)}</span></label><div className="sun-readout"><span className="sun-icon">☀</span><div><strong>{hour < 12 ? 'Morning light' : hour < 16 ? 'Strong afternoon light' : 'Warm evening light'}</strong><small>East + south windows</small></div></div><input aria-label="Sunlight time" type="range" min="7" max="20" step="0.25" value={hour} onChange={(e) => onHour(Number(e.target.value))} /><div className="range-labels"><span>7 AM</span><span>NOON</span><span>8 PM</span></div></div>
-      <div className="control-section"><label>DISPLAY</label><label className="toggle-row">Furniture shadows <input type="checkbox" checked={shadows} onChange={(event) => onShadows(event.target.checked)} /><i /></label><label className="toggle-row">Window light paths <input type="checkbox" checked={lightPaths} onChange={(event) => onLightPaths(event.target.checked)} /><i /></label><label className="toggle-row">Measurements <input type="checkbox" checked={measurements} onChange={(event) => onMeasurements(event.target.checked)} /><i /></label></div>
-      <div className="sun-fact"><span>✦</span><div><strong>5.7 hrs useful daylight</strong><p>at the desk on a typical May day</p></div></div>
+      <div className="control-section daylight-control"><label>SUNLIGHT PREVIEW <span>{timeLabel(hour)}</span></label><div className="sun-readout"><span className="sun-icon">☀</span><div><strong>{hour < 12 ? 'Morning light' : hour < 16 ? 'Afternoon light' : 'Evening light'}</strong><small>{exposure}</small></div></div><div className="visual-estimate" role="note">Visual estimate · based on apartment orientation</div><input aria-label={`Sunlight preview time, ${timeLabel(hour)}`} type="range" min="7" max="20" step="0.25" value={hour} onChange={(e) => onHour(Number(e.target.value))} /><div className="range-labels"><span>7 AM</span><span>NOON</span><span>8 PM</span></div></div>
+      <div className="control-section"><label>DISPLAY</label><label className="toggle-row">Furniture measurements <input type="checkbox" checked={measurements} onChange={(event) => onMeasurements(event.target.checked)} /><i /></label></div>
     </aside>
   );
 }
 
-function ThreeDView({ projectId, hour, camera, cameraReset, shadows, lightPaths, measurements, objects, architecture }: { projectId: string; hour: number; camera: number; cameraReset: number; shadows: boolean; lightPaths: boolean; measurements: boolean; objects: SceneObject[]; architecture: ArchitecturalElement[] }) {
+function ThreeDView({ projectId, hour, northAngle, camera, cameraReset, measurements, objects, architecture }: { projectId: string; hour: number; northAngle: number; camera: number; cameraReset: number; measurements: boolean; objects: SceneObject[]; architecture: ArchitecturalElement[] }) {
   return (
     <section className="preview-workspace" aria-label="3D apartment preview">
-      <div className="preview-topline"><div><span className="eyebrow">LIVING ROOM · EAST VIEW</span><strong>{timeLabel(hour)}</strong></div></div>
-      <ApartmentScene projectId={projectId} hour={hour} cameraStep={camera} cameraReset={cameraReset} shadows={shadows} lightPaths={lightPaths} measurements={measurements} objects={objects} architecture={architecture} />
-      <div className="light-meter"><span>DESK DAYLIGHT</span><strong>{Math.round(180 + Math.sin(((hour - 7) / 13) * Math.PI) * 520)} lux</strong><i /></div>
+      <div className="preview-topline"><div><span className="eyebrow">3D APARTMENT · SUNLIGHT PREVIEW</span><strong>{timeLabel(hour)}</strong></div></div>
+      <ApartmentScene projectId={projectId} hour={hour} northAngle={northAngle} cameraStep={camera} cameraReset={cameraReset} measurements={measurements} objects={objects} architecture={architecture} />
+      {measurements && <div className="sr-only" role="status">Furniture dimensions: {objects.map((item) => `${item.name}, width ${item.dimensions.width.toFixed(2)} meters, depth ${item.dimensions.depth.toFixed(2)} meters, height ${item.dimensions.height.toFixed(2)} meters`).join('; ')}</div>}
       <div className="sun-timeline"><div /><div className="timeline-track"><div className="daylight-band"><i style={{ left: `${((hour - 7) / 13) * 100}%` }} /></div><div className="time-ticks"><span>7 AM</span><span>10 AM</span><span>1 PM</span><span>4 PM</span><span>8 PM</span></div></div><div /></div>
     </section>
   );
@@ -1802,7 +1799,7 @@ function EvaluationView() {
             <div className="section-title"><span>WATCH OUT FOR</span><b>2</b></div>
             <article className="finding negative"><i>01</i><div><strong>Limited built-in storage</strong><p>Closet capacity is about 18% below your stated needs. A storage bed would close most of the gap.</p><small>Medium impact · Storage</small></div><span>↘</span></article>
             <article className="finding negative"><i>02</i><div><strong>Dining clearance is tight</strong><p>Pulling all four chairs out at once narrows the kitchen route to 28 inches.</p><small>Low impact · Open space</small></div><span>↘</span></article>
-            <div className="confidence-card"><div><span>MODEL CONFIDENCE</span><strong>High · 94%</strong></div><p>Based on verified room and furniture dimensions, window orientation, and a May 12 sun path.</p></div>
+            <div className="confidence-card"><div><span>MODEL CONFIDENCE</span><strong>Geometry verified</strong></div><p>Furniture dimensions and saved window orientation are reflected in the visual preview.</p></div>
           </div>
         </div>
       </div>

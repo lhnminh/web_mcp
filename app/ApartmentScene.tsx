@@ -1,10 +1,11 @@
 'use client';
 
-import { ContactShadows, OrbitControls, RoundedBox } from '@react-three/drei';
-import { Canvas, useThree } from '@react-three/fiber';
+import { ContactShadows, Html, Line, OrbitControls, RoundedBox } from '@react-three/drei';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ArchitecturalElement, OpeningElement, RoomElement, WallElement } from '@/lib/domain/scene';
 import { getArchitectureBounds, wallLength } from '@/lib/domain/architecture';
+import { getSunDirection } from '@/lib/domain/sunlight';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 
@@ -20,10 +21,9 @@ type SceneObject = {
 type ApartmentSceneProps = {
   projectId: string;
   hour: number;
+  northAngle: number;
   cameraStep: number;
   cameraReset: number;
-  shadows: boolean;
-  lightPaths: boolean;
   measurements: boolean;
   objects: SceneObject[];
   architecture: ArchitecturalElement[];
@@ -167,7 +167,7 @@ function WindowInsert({ opening, wall, angle, center }: { opening: OpeningElemen
       <Box position={[opening.width / 2 - frame / 2, 0, 0]} size={[frame, opening.height, depth]} color={palette.trim} radius={0.008} />
       <Box position={[0, opening.height / 2 - frame / 2, 0]} size={[innerWidth, frame, depth]} color={palette.trim} radius={0.008} />
       <Box position={[0, -opening.height / 2 + frame / 2, 0]} size={[innerWidth, frame, depth]} color={palette.trim} radius={0.008} />
-      <mesh position={[0, 0, 0]} castShadow receiveShadow>
+      <mesh position={[0, 0, 0]} castShadow={false} receiveShadow>
         <boxGeometry args={[innerWidth, innerHeight, 0.012]} />
         <meshPhysicalMaterial color="#a9ced8" transparent opacity={0.38} roughness={0.12} transmission={0.18} side={THREE.DoubleSide} />
       </mesh>
@@ -354,13 +354,54 @@ function Furniture({ objects }: { objects: SceneObject[] }) {
   );
 }
 
-function Sunlight({ hour, shadows, lightPaths }: { hour: number; shadows: boolean; lightPaths: boolean }) {
+function FurnitureMeasurements({ objects }: { objects: SceneObject[] }) {
+  const camera = useThree((state) => state.camera);
+  const [showHeight, setShowHeight] = useState(false);
+  const cameraDirection = useRef(new THREE.Vector3());
+  const color = '#b64c3c';
+  const tick = 0.06;
+
+  useFrame(() => {
+    camera.getWorldDirection(cameraDirection.current);
+    const nextShowHeight = Math.abs(cameraDirection.current.y) < 0.92;
+    setShowHeight((current) => current === nextShowHeight ? current : nextShowHeight);
+  });
+
+  return (
+    <group>
+      {objects.map((item) => {
+        const { width, depth, height } = item.dimensions;
+        const widthOffset = depth / 2 + 0.14;
+        const depthOffset = width / 2 + 0.14;
+        const heightX = width / 2 + 0.14;
+        const heightZ = -depth / 2 - 0.14;
+        return (
+          <group key={`${item.id}-measurements`} position={[item.transform.position.x, item.transform.position.y + 0.025, item.transform.position.z]} rotation={[0, THREE.MathUtils.degToRad(item.transform.rotation.y), 0]}>
+            <Line points={[[-width / 2, 0, widthOffset], [width / 2, 0, widthOffset]]} color={color} lineWidth={1} depthTest={false} />
+            <Line points={[[-width / 2, 0, widthOffset - tick], [-width / 2, 0, widthOffset + tick], [width / 2, 0, widthOffset + tick], [width / 2, 0, widthOffset - tick]]} color={color} lineWidth={1} depthTest={false} />
+            <Html center sprite position={[0, 0.08, widthOffset]} className="furniture-measurement-label">W {width.toFixed(2)} m</Html>
+
+            <Line points={[[depthOffset, 0, -depth / 2], [depthOffset, 0, depth / 2]]} color={color} lineWidth={1} depthTest={false} />
+            <Line points={[[depthOffset - tick, 0, -depth / 2], [depthOffset + tick, 0, -depth / 2], [depthOffset + tick, 0, depth / 2], [depthOffset - tick, 0, depth / 2]]} color={color} lineWidth={1} depthTest={false} />
+            <Html center sprite position={[depthOffset, 0.08, 0]} className="furniture-measurement-label">D {depth.toFixed(2)} m</Html>
+
+            {showHeight && <>
+              <Line points={[[heightX, 0, heightZ], [heightX, height, heightZ]]} color={color} lineWidth={1} depthTest={false} />
+              <Line points={[[heightX - tick, 0, heightZ], [heightX + tick, 0, heightZ], [heightX + tick, height, heightZ], [heightX - tick, height, heightZ]]} color={color} lineWidth={1} depthTest={false} />
+              <Html center sprite position={[heightX, height / 2, heightZ]} className="furniture-measurement-label">H {height.toFixed(2)} m</Html>
+            </>}
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+function Sunlight({ hour, northAngle, center }: { hour: number; northAngle: number; center: [number, number, number] }) {
   const sun = useMemo(() => {
-    const progress = (hour - 7) / 13;
-    const angle = THREE.MathUtils.lerp(-0.85, 0.82, progress);
-    const elevation = Math.sin(progress * Math.PI) * 7 + 2;
-    return [3.7 + Math.sin(angle) * 10, elevation, -7 + Math.cos(angle) * 2] as [number, number, number];
-  }, [hour]);
+    const offset = getSunDirection(hour, northAngle).position;
+    return [center[0] + offset[0], center[1] + offset[1], center[2] + offset[2]] as [number, number, number];
+  }, [center, hour, northAngle]);
   const warmth = hour < 9.5 || hour > 17 ? '#ffd1a0' : '#fff1d0';
   const intensity = Math.max(1.4, Math.sin(((hour - 7) / 13) * Math.PI) * 3.8);
 
@@ -370,7 +411,7 @@ function Sunlight({ hour, shadows, lightPaths }: { hour: number; shadows: boolea
         position={sun}
         intensity={intensity}
         color={warmth}
-        castShadow={shadows}
+        castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
         shadow-camera-left={-8}
@@ -378,31 +419,27 @@ function Sunlight({ hour, shadows, lightPaths }: { hour: number; shadows: boolea
         shadow-camera-top={8}
         shadow-camera-bottom={-8}
         shadow-bias={-0.00025}
-      />
+      >
+        <object3D attach="target" position={center} />
+      </directionalLight>
       <ambientLight intensity={0.42} color="#dce5e4" />
-      {lightPaths && (
-        <group position={[2.2 + (hour - 13) * 0.08, 0.025, 1.78]} rotation={[-Math.PI / 2, 0, -0.18]}>
-          <mesh>
-            <planeGeometry args={[2.9, 1.45]} />
-            <meshBasicMaterial color="#ffc477" transparent opacity={0.13} depthWrite={false} blending={THREE.AdditiveBlending} />
-          </mesh>
-        </group>
-      )}
     </>
   );
 }
 
-function Scene({ hour, shadows, lightPaths, measurements, objects, architecture }: Omit<ApartmentSceneProps, 'projectId' | 'cameraStep' | 'cameraReset'>) {
+function Scene({ hour, northAngle, measurements, objects, architecture }: Omit<ApartmentSceneProps, 'projectId' | 'cameraStep' | 'cameraReset'>) {
   const bounds = getArchitectureBounds(architecture);
+  const sunlightCenter = useMemo(() => [(bounds.minX + bounds.maxX) / 2, 0.8, (bounds.minY + bounds.maxY) / 2] as [number, number, number], [bounds.maxX, bounds.maxY, bounds.minX, bounds.minY]);
   return (
     <>
       <color attach="background" args={['#d8dedb']} />
       <fog attach="fog" args={['#d8dedb', 13, 24]} />
       <hemisphereLight args={['#e6f0f2', '#9a765d', 0.72]} />
-      <Sunlight hour={hour} shadows={shadows} lightPaths={lightPaths} />
+      <Sunlight hour={hour} northAngle={northAngle} center={sunlightCenter} />
       <Architecture measurements={measurements} architecture={architecture} />
       <Furniture objects={objects} />
-      {shadows && <ContactShadows position={[(bounds.minX + bounds.maxX) / 2, 0.02, (bounds.minY + bounds.maxY) / 2]} scale={Math.max(bounds.width, bounds.depth) * 1.35} opacity={0.32} blur={2.2} far={4} />}
+      {measurements && <FurnitureMeasurements objects={objects} />}
+      <ContactShadows position={[(bounds.minX + bounds.maxX) / 2, 0.02, (bounds.minY + bounds.maxY) / 2]} scale={Math.max(bounds.width, bounds.depth) * 1.35} opacity={0.32} blur={2.2} far={4} />
     </>
   );
 }
@@ -435,7 +472,7 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
   return (
     <div className="three-canvas" role="img" aria-label="Interactive three-dimensional apartment model. Drag to orbit, scroll to zoom, and right-drag to pan.">
       <Canvas
-        shadows={props.shadows}
+        shadows
         dpr={[1, 1.75]}
         camera={{ position: initialCamera.position, fov: 42, near: 0.1, far: 100 }}
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
@@ -448,8 +485,7 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
       >
         <Scene
           hour={props.hour}
-          shadows={props.shadows}
-          lightPaths={props.lightPaths}
+          northAngle={props.northAngle}
           measurements={props.measurements}
           objects={props.objects}
           architecture={props.architecture}
