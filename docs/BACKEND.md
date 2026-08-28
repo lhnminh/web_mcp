@@ -62,3 +62,15 @@ Example object move:
 ## Where Python fits later
 
 A Python optimization or geometry service can accept and return this JSON scene document. Python is a good option for heavy geometry, constraint solving, sunlight analysis, or ML. It should not own a second copy of project state; the scene document is the contract between services.
+
+## WebMCP browser integration
+
+Dwellwise progressively registers page-scoped tools through `document.modelContext` when the browser supports WebMCP. Browsers without WebMCP continue to use the normal interface without an error or polyfill.
+
+- `/` registers project list, create, and open tools after the private browser workspace loads.
+- `/projects/:id` registers bounded project, furniture, and architecture reads; safe saved mutations; and transient editor-view controls after the owned project loads.
+- Route changes abort the previous registrations so dashboard and editor capabilities cannot overlap.
+- Saved tool calls use the same anonymous-profile APIs, current revision, mutation queue, scene validation, collision checks, visible state synchronization, and editor history as human actions.
+- Tool inputs never accept an owner profile, cookie, arbitrary route, raw scene document, or arbitrary URL.
+
+The adapter and tool definitions live in `app/webmcp/`; React lifecycle registration lives in `app/hooks/use-webmcp-tools.ts`. Set `NEXT_PUBLIC_WEBMCP_ENABLED=false` to disable registration without changing project data or the human UI.

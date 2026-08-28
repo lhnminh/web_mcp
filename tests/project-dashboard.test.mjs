@@ -38,6 +38,8 @@ function dashboard(fetch) {
       };
       if (name === 'next/navigation') return { useRouter: () => ({ push() {} }) };
       if (name === 'next/link') return { default: 'a' };
+      if (name === '@/app/hooks/use-webmcp-tools') return { useWebMcpTools() {} };
+      if (name === '@/app/webmcp/dashboard-tools') return { buildDashboardTools: () => [] };
       throw new Error(`Unexpected import: ${name}`);
     },
   });
