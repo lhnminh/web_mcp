@@ -6,7 +6,23 @@ export type SunDirection = {
   elevation: number;
 };
 
+export type CardinalDirection = 'N' | 'E' | 'S' | 'W';
+
+const cardinalDirections: CardinalDirection[] = ['N', 'E', 'S', 'W'];
+
 const normalizeDegrees = (degrees: number) => ((degrees % 360) + 360) % 360;
+
+/** Converts the direction at the top of the plan into the scene angle of true north. */
+export function northAngleForPlanFacing(direction: CardinalDirection) {
+  const topBearing = cardinalDirections.indexOf(direction) * 90;
+  return normalizeDegrees(-topBearing);
+}
+
+/** Returns the nearest cardinal direction faced by the top edge of the plan. */
+export function planFacingFromNorthAngle(northAngle: number): CardinalDirection {
+  const topBearing = normalizeDegrees(-northAngle);
+  return cardinalDirections[Math.round(topBearing / 90) % cardinalDirections.length];
+}
 
 /**
  * `northAngle` rotates true north clockwise from the scene's -Z axis.

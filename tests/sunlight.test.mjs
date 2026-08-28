@@ -11,7 +11,7 @@ const compiled = ts.transpileModule(source, {
 const exports = {};
 runInNewContext(compiled, { exports, Math, Number, Set, Map });
 
-const { getSunDirection, getWallExposure, getWindowExposureSummary } = exports;
+const { getSunDirection, getWallExposure, getWindowExposureSummary, northAngleForPlanFacing, planFacingFromNorthAngle } = exports;
 const near = (actual, expected, tolerance = 0.0001) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} should be near ${expected}`);
 
 test('generic solar arc follows east, south, and west around scene north', () => {
@@ -39,6 +39,17 @@ test('north angle rotates the solar arc in scene coordinates', () => {
   near(threeQuarter[0], base[2]);
   near(threeQuarter[2], -base[0]);
   near(quarter[1], base[1]);
+});
+
+test('cardinal plan-facing choices map to the correct true-north angle', () => {
+  assert.deepEqual(
+    ['N', 'E', 'S', 'W'].map((direction) => northAngleForPlanFacing(direction)),
+    [0, 270, 180, 90],
+  );
+  assert.deepEqual(
+    [0, 270, 180, 90].map((angle) => planFacingFromNorthAngle(angle)),
+    ['N', 'E', 'S', 'W'],
+  );
 });
 
 const architecture = [
