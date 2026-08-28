@@ -106,7 +106,7 @@ Duplicating projects can be added later if time permits, but it is not required 
 
 The following behavior must remain unchanged after a project is opened:
 
-- The default editor view is **2D plan** in **Furnish** mode at 80% zoom.
+- The default editor view is **2D plan** in **Furnish** mode at 90% zoom.
 - Architecture and furniture are loaded from the selected project.
 - Architecture edits affect both the 2D plan and 3D preview.
 - Furniture can be added, moved, resized, rotated, and removed.

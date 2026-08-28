@@ -138,7 +138,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   const [selectedRoomId, setSelectedRoomId] = useState('');
   const [drawingWall, setDrawingWall] = useState(false);
   const [architecturePreview, setArchitecturePreview] = useState<ArchitecturalElement[] | null>(null);
-  const [zoom, setZoom] = useState(80);
+  const [zoom, setZoom] = useState(90);
   const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 });
   const [historyBusy, setHistoryBusy] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -635,7 +635,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       setCompare(false);
       setView('plan');
       setEditMode('architecture');
-      setZoom(80);
+      setZoom(90);
       setHour(14.5);
       setCamera(0);
       setCameraReset((value) => value + 1);
@@ -1117,11 +1117,6 @@ function PlanView({ editMode, architecture, selectedWallId, selectedOpeningId, s
           {editMode === 'furnish' && objects.map((item) => <PlanFurniture key={item.id} item={item} {...shared} />)}
         </div>
       </div>
-      <div className="sheet-titleblock" aria-label="Drawing title block">
-        <div><span>PROJECT</span><strong>197 BEDFORD AVE · 4B</strong></div>
-        <div><span>DRAWING</span><strong>FURNITURE + CLEARANCE PLAN</strong></div>
-        <div className="sheet-meta"><span>SCALE<br /><b>1/4″ = 1′–0″</b></span><span>DATE<br /><b>26 AUG 2026</b></span><strong>A–01</strong></div>
-      </div>
       <div className={`plan-status ${statusError ? 'has-collision' : ''}`} role="status"><span className={statusError ? 'status-collision' : 'status-good'}>{collisionMessage ? `${statusError ? '⚠' : '✓'} ${collisionMessage}` : editMode === 'architecture' ? '✓ Architecture is valid' : '✓ No furniture collisions'}</span><span>{editMode === 'architecture' ? drawingWall ? 'Click two points to add a wall · Escape cancels' : 'Drag wall corners, exterior edges, or doors directly in the plan' : 'Drag anywhere in the apartment · arrows move · toolbar rotates/removes'}</span></div>
     </section>
   );
@@ -1354,7 +1349,7 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
     }
   };
 
-  const fontSize = Math.max(bounds.width, bounds.depth) / 55;
+  const fontSize = Math.max(bounds.width, bounds.depth) / 48;
   return (
     <svg ref={svgRef} className={`architecture-svg ${drawingWall ? 'drawing-wall' : ''} ${wallDrag ? 'dragging-wall' : ''} ${doorDrag ? 'dragging-door' : ''}`} viewBox={`${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.depth}`} preserveAspectRatio="none" onPointerMove={pointerMove} onPointerDown={pointerDown} onPointerUp={finishInteraction} onPointerCancel={() => { setWallDrag(null); setDoorDrag(null); }} aria-label="Apartment rooms and walls">
       {rooms.map((room, index) => {
