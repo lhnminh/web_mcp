@@ -7,6 +7,7 @@ import { getArchitectureBounds, isExteriorWall, isRectangularRoom, pointInRoom, 
 import { blankApartmentScene } from '@/lib/domain/demo-scene';
 import { getWindowExposureSummary } from '@/lib/domain/sunlight';
 import ApartmentScene from './ApartmentScene';
+import { getFurnitureKind } from '@/lib/domain/furniture';
 import { useWebMcpTools } from '@/app/hooks/use-webmcp-tools';
 import { buildEditorTools, type AddFurnitureToolInput, type UpdateFurnitureToolInput } from '@/app/webmcp/editor-tools';
 import { toolFailure, toolFailureFromMessage, toolSuccess } from '@/app/webmcp/result';
@@ -545,6 +546,10 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
 
   const selectView = (next: View) => {
     setCompare(false);
+    if (next === 'three' && view !== 'three') {
+      setCamera(0);
+      setCameraReset((value) => value + 1);
+    }
     setView(next);
   };
 
@@ -984,7 +989,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
             {view === 'three' && <PreviewControls hour={hour} camera={camera} northAngle={project.scene.northAngle} architecture={displayedArchitecture} measurements={showMeasurements} onHour={setHour} onCamera={setCamera} onReset={() => setCameraReset((value) => value + 1)} onMeasurements={setShowMeasurements} />}
             {view === 'evaluation' && <PriorityPanel />}
             {view === 'plan' && <PlanView editMode={editMode} architecture={displayedArchitecture} selectedWallId={selectedWallId} selectedOpeningId={selectedOpeningId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} selected={selected} onSelect={setSelected} onSelectWall={selectWall} onSelectOpening={selectOpening} onSelectRoom={selectRoom} layout={layout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={editMode === 'architecture' ? architectureMessage : collisionMessage} statusError={editMode === 'architecture' ? Boolean(architectureMessage) && !architectureSuccess : Boolean(collisionMessage)} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} onAddWall={addWall} onUpdateWall={updateWall} onUpdateOpening={updateOpening} />}
-            {view === 'three' && <ThreeDView projectId={project.id} hour={hour} northAngle={project.scene.northAngle} camera={camera} cameraReset={cameraReset} measurements={showMeasurements} objects={sceneObjects[layout]} architecture={displayedArchitecture} />}
+            {view === 'three' && <ThreeDView hour={hour} northAngle={project.scene.northAngle} camera={camera} cameraReset={cameraReset} measurements={showMeasurements} objects={sceneObjects[layout]} architecture={displayedArchitecture} />}
             {view === 'evaluation' && <EvaluationView />}
           </>
         )}
@@ -1279,22 +1284,8 @@ function FurniturePanel({ selected, onSelect, objects }: { selected: string; onS
   );
 }
 
-function furnitureKind(category: string, name: string) {
-  const label = name.toLowerCase();
-  return label.includes('bed') ? 'bed'
-    : label.includes('sofa') ? 'sofa'
-      : label.includes('desk') ? 'desk'
-        : label.includes('dining') ? 'dining'
-          : label.includes('coffee') ? 'coffee'
-            : label.includes('chair') ? 'chair'
-              : label.includes('bookcase') ? 'bookcase'
-                : label.includes('nightstand') ? 'nightstand'
-                  : label.includes('dresser') || category === 'storage' ? 'storage'
-                  : category;
-}
-
 function FurnitureGlyph({ category, name, compact = false }: { category: string; name: string; compact?: boolean }) {
-  const kind = furnitureKind(category, name);
+  const kind = getFurnitureKind(category, name);
   const mainStyle = { fill: 'rgba(82,116,136,.07)', stroke: '#527488', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   const detailStyle = { fill: 'none', stroke: '#527488', strokeWidth: 1.05, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
   const softStyle = { ...detailStyle, strokeWidth: .75, strokeDasharray: '1.4 1.4', opacity: .58 };
@@ -1304,10 +1295,10 @@ function FurnitureGlyph({ category, name, compact = false }: { category: string;
       {kind === 'bed' && <><rect style={mainStyle} x="11" y="5" width="26" height="27" rx="1" /><path style={detailStyle} d="M11 14h26M24 14v18M13.5 8h9v4h-9zM25.5 8h9v4h-9z" /><path style={softStyle} d="M14 18v11M18 18v11M30 18v11M34 18v11" /></>}
       {kind === 'sofa' && <><rect style={mainStyle} x="7" y="9" width="34" height="20" rx="5" /><rect style={detailStyle} x="12" y="12" width="24" height="13" rx="3" /><path style={mainStyle} d="M12 12v13M36 12v13M24 12v13" /><path style={softStyle} d="M9 30h30" /></>}
       {kind === 'desk' && <><rect style={mainStyle} x="7" y="7" width="34" height="15" rx="1" /><path style={detailStyle} d="M11 18h26M18 11h12v7H18z" /><rect style={mainStyle} x="18" y="25" width="12" height="7" rx="3" /><path style={softStyle} d="M24 22v3" /></>}
-      {kind === 'dining' && <><ellipse style={mainStyle} cx="24" cy="18" rx="13" ry="9" /><path style={detailStyle} d="M24 9v18M11 18h26" /><rect style={mainStyle} x="20" y="2.5" width="8" height="4" rx="2" /><rect style={mainStyle} x="20" y="29.5" width="8" height="4" rx="2" /><rect style={mainStyle} x="4.5" y="14" width="4" height="8" rx="2" /><rect style={mainStyle} x="39.5" y="14" width="4" height="8" rx="2" /></>}
+      {kind === 'dining' && <><ellipse style={mainStyle} cx="24" cy="18" rx="15" ry="10.5" /><ellipse style={detailStyle} cx="24" cy="18" rx="11" ry="7" /><path style={detailStyle} d="M24 8v20M9 18h30" /><rect style={mainStyle} x="19.5" y="1.5" width="9" height="5" rx="2.5" /><rect style={mainStyle} x="19.5" y="29.5" width="9" height="5" rx="2.5" /><rect style={mainStyle} x="2.5" y="13.5" width="5" height="9" rx="2.5" /><rect style={mainStyle} x="40.5" y="13.5" width="5" height="9" rx="2.5" /></>}
       {kind === 'coffee' && <><ellipse style={mainStyle} cx="24" cy="18" rx="16" ry="10" /><ellipse style={detailStyle} cx="24" cy="18" rx="11" ry="6" /><circle style={accentStyle} cx="24" cy="18" r="1.8" /></>}
       {kind === 'chair' && <><rect style={mainStyle} x="13" y="8" width="22" height="22" rx="6" /><rect style={detailStyle} x="17" y="12" width="14" height="13" rx="4" /><path style={mainStyle} d="M13 13H9v12h4M35 13h4v12h-4M17 30v3M31 30v3" /></>}
-      {kind === 'bookcase' && <><rect style={mainStyle} x="13" y="4" width="22" height="28" /><path style={mainStyle} d="M13 11h22M13 18h22M13 25h22" /><path style={softStyle} d="M17 6v4M22 6v4M29 13v4M18 20v4M26 27v4M31 27v4" /></>}
+      {kind === 'bookcase' && <><rect style={mainStyle} x="10" y="2" width="28" height="32" rx="1" /><path style={mainStyle} d="M10 12.5h28M10 23h28" /><path style={detailStyle} d="M14 5v6M19 4v7M25 14v7M31 14v7M14 25v6M21 26v5M29 25v6M34 26v5" /><path style={softStyle} d="M12 32h24" /></>}
       {kind === 'nightstand' && <><rect style={mainStyle} x="14" y="6" width="20" height="25" rx="1" /><path style={mainStyle} d="M14 14h20M14 22h20" /><circle style={accentStyle} cx="24" cy="10" r="1" /><circle style={accentStyle} cx="24" cy="18" r="1" /><circle style={accentStyle} cx="24" cy="26" r="1" /></>}
       {kind === 'storage' && <><rect style={mainStyle} x="10" y="7" width="28" height="23" rx="1" /><path style={mainStyle} d="M10 14.5h28M10 22h28M24 7v23" /><circle style={accentStyle} cx="21" cy="11" r="1" /><circle style={accentStyle} cx="27" cy="11" r="1" /><circle style={accentStyle} cx="21" cy="18" r="1" /><circle style={accentStyle} cx="27" cy="18" r="1" /></>}
       {!['bed', 'sofa', 'desk', 'dining', 'coffee', 'chair', 'bookcase', 'nightstand', 'storage'].includes(kind) && <><path style={mainStyle} d="M12 8h24l5 10-5 10H12L7 18z" /><circle style={accentStyle} cx="24" cy="18" r="4" /><path style={detailStyle} d="M24 9v5M24 22v5M15 18h5M28 18h5" /></>}
@@ -1605,7 +1596,7 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
 }
 
 function PlanFurniture({ item, ...props }: { item: SceneObject; selected: string; onSelect: (id: string) => void; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; architecture: ArchitecturalElement[]; bounds: ReturnType<typeof getArchitectureBounds> }) {
-  const kind = furnitureKind(item.category, item.name);
+  const kind = getFurnitureKind(item.category, item.name);
   return <DraggablePlanObject item={item} className={`furniture-plan-object plan-${kind}`} {...props}><PlanFurnitureDrawing kind={kind} /></DraggablePlanObject>;
 }
 
@@ -1626,11 +1617,13 @@ function PlanFurnitureDrawing({ kind }: { kind: string }) {
         <path {...detail} d="M8 48Q50 57 92 48" opacity=".65" />
       </>}
       {kind === 'sofa' && <>
-        <rect {...body} x="3" y="7" width="94" height="86" rx="12" />
-        <rect {...light} x="12" y="14" width="76" height="72" rx="8" />
-        <path {...detail} d="M37.3 15V85M62.7 15V85M12 68H88" />
-        <path {...line} d="M12 21H6V79H12M88 21H94V79H88" />
-        <path {...detail} d="M17 91H27M73 91H83" />
+        <g transform="rotate(180 50 50)">
+          <rect {...body} x="3" y="7" width="94" height="86" rx="12" />
+          <rect {...light} x="12" y="14" width="76" height="72" rx="8" />
+          <path {...detail} d="M37.3 15V85M62.7 15V85M12 68H88" />
+          <path {...line} d="M12 21H6V79H12M88 21H94V79H88" />
+          <path {...detail} d="M17 91H27M73 91H83" />
+        </g>
       </>}
       {kind === 'desk' && <>
         <rect {...body} x="3" y="6" width="94" height="70" rx="2" />
@@ -1642,12 +1635,13 @@ function PlanFurnitureDrawing({ kind }: { kind: string }) {
         <ellipse {...light} cx="50" cy="87" rx="18" ry="10" />
       </>}
       {kind === 'dining' && <>
-        <ellipse {...body} cx="50" cy="50" rx="31" ry="29" />
-        <path {...detail} d="M50 22V78M20 50H80" />
-        <rect {...light} x="39" y="3" width="22" height="13" rx="6" />
-        <rect {...light} x="39" y="84" width="22" height="13" rx="6" />
-        <rect {...light} x="3" y="39" width="13" height="22" rx="6" />
-        <rect {...light} x="84" y="39" width="13" height="22" rx="6" />
+        <ellipse {...body} cx="50" cy="50" rx="35" ry="33" />
+        <ellipse {...detail} cx="50" cy="50" rx="27" ry="24" />
+        <path {...detail} d="M50 17V83M15 50H85" />
+        <rect {...light} x="37" y="2" width="26" height="14" rx="7" />
+        <rect {...light} x="37" y="84" width="26" height="14" rx="7" />
+        <rect {...light} x="2" y="37" width="14" height="26" rx="7" />
+        <rect {...light} x="84" y="37" width="14" height="26" rx="7" />
         <circle cx="50" cy="50" r="3" fill="#527488" />
       </>}
       {kind === 'coffee' && <>
@@ -1672,10 +1666,10 @@ function PlanFurnitureDrawing({ kind }: { kind: string }) {
         <circle cx="50" cy="79" r="3" fill="#527488" />
       </>}
       {kind === 'bookcase' && <>
-        <rect {...body} x="6" y="3" width="88" height="94" rx="2" />
-        <path {...line} d="M6 27H94M6 51H94M6 75H94" />
-        <path {...detail} d="M14 7V25M23 7V25M36 7V25M61 29V49M72 29V49M86 29V49M15 53V73M31 53V73M41 53V73M67 77V95M79 77V95" opacity=".8" />
-        <path {...detail} d="M47 7L54 25M49 53L56 73" />
+        <rect {...body} x="2" y="2" width="96" height="96" rx="3" />
+        <path {...line} d="M2 34H98M2 67H98" />
+        <path {...detail} d="M10 7V30M20 7V30M33 7V30M47 39V63M59 39V63M74 39V63M88 39V63M11 72V94M25 72V94M41 72V94M58 72V94M70 72V94M87 72V94" opacity=".9" />
+        <path {...detail} d="M38 7L44 30M80 72L85 94" />
       </>}
       {kind === 'storage' && <>
         <rect {...body} x="3" y="5" width="94" height="90" rx="2" />
@@ -1927,22 +1921,23 @@ function formatDimensions(dimensions: SceneObject['dimensions']) {
 }
 
 function PreviewControls({ hour, camera, northAngle, architecture, measurements, onHour, onCamera, onReset, onMeasurements }: { hour: number; camera: number; northAngle: number; architecture: ArchitecturalElement[]; measurements: boolean; onHour: (n: number) => void; onCamera: (n: number) => void; onReset: () => void; onMeasurements: (value: boolean) => void }) {
+  const hasWindows = architecture.some((element) => element.kind === 'opening' && element.openingType === 'window');
   const exposure = getWindowExposureSummary(architecture, northAngle);
   return (
     <aside className="library-panel preview-controls">
       <div className="panel-heading"><div><span className="eyebrow">3D MODEL</span><h2>View controls</h2></div><span className="live-badge"><i /> LIVE</span></div>
       <div className="control-section"><label>CAMERA ANGLE <span>{camera > 0 ? '+' : ''}{camera * 12}°</span></label><div className="camera-pad"><button onClick={() => onCamera(Math.max(-2, camera - 1))} aria-label="Rotate camera left">↶</button><div className={`camera-orbit orbit-${camera}`}><i /><span /></div><button onClick={() => onCamera(Math.min(2, camera + 1))} aria-label="Rotate camera right">↷</button></div><button className="wide-control" onClick={() => { onCamera(0); onReset(); }}>Reset perspective</button></div>
-      <div className="control-section daylight-control"><label>SUNLIGHT PREVIEW <span>{timeLabel(hour)}</span></label><div className="sun-readout"><span className="sun-icon">☀</span><div><strong>{hour < 12 ? 'Morning light' : hour < 16 ? 'Afternoon light' : 'Evening light'}</strong><small>{exposure}</small></div></div><div className="visual-estimate" role="note">Visual estimate · based on apartment orientation</div><input aria-label={`Sunlight preview time, ${timeLabel(hour)}`} type="range" min="7" max="20" step="0.25" value={hour} onChange={(e) => onHour(Number(e.target.value))} /><div className="range-labels"><span>7 AM</span><span>NOON</span><span>8 PM</span></div></div>
+      <div className="control-section daylight-control"><label>SUNLIGHT PREVIEW <span>{timeLabel(hour)}</span></label><div className="sun-readout"><span className="sun-icon">{hasWindows ? '☀' : '●'}</span><div><strong>{hasWindows ? (hour < 12 ? 'Morning light' : hour < 16 ? 'Afternoon light' : 'Evening light') : 'Light · ON'}</strong><small>{hasWindows ? exposure : 'Artificial fill · no direct sunlight'}</small></div></div><div className="visual-estimate" role="note">Visual estimate · based on apartment orientation</div><input aria-label={`Sunlight preview time, ${timeLabel(hour)}`} type="range" min="7" max="20" step="0.25" value={hour} onChange={(e) => onHour(Number(e.target.value))} /><div className="range-labels"><span>7 AM</span><span>NOON</span><span>8 PM</span></div></div>
       <div className="control-section"><label>DISPLAY</label><label className="toggle-row">Furniture measurements <input type="checkbox" checked={measurements} onChange={(event) => onMeasurements(event.target.checked)} /><i /></label></div>
     </aside>
   );
 }
 
-function ThreeDView({ projectId, hour, northAngle, camera, cameraReset, measurements, objects, architecture }: { projectId: string; hour: number; northAngle: number; camera: number; cameraReset: number; measurements: boolean; objects: SceneObject[]; architecture: ArchitecturalElement[] }) {
+function ThreeDView({ hour, northAngle, camera, cameraReset, measurements, objects, architecture }: { hour: number; northAngle: number; camera: number; cameraReset: number; measurements: boolean; objects: SceneObject[]; architecture: ArchitecturalElement[] }) {
   return (
     <section className="preview-workspace" aria-label="3D apartment preview">
       <div className="preview-topline"><div><span className="eyebrow">3D APARTMENT · SUNLIGHT PREVIEW</span><strong>{timeLabel(hour)}</strong></div></div>
-      <ApartmentScene projectId={projectId} hour={hour} northAngle={northAngle} cameraStep={camera} cameraReset={cameraReset} measurements={measurements} objects={objects} architecture={architecture} />
+      <ApartmentScene hour={hour} northAngle={northAngle} cameraStep={camera} cameraReset={cameraReset} measurements={measurements} objects={objects} architecture={architecture} />
       {measurements && <div className="sr-only" role="status">Furniture dimensions: {objects.map((item) => `${item.name}, width ${item.dimensions.width.toFixed(2)} meters, depth ${item.dimensions.depth.toFixed(2)} meters, height ${item.dimensions.height.toFixed(2)} meters`).join('; ')}</div>}
       <div className="sun-timeline"><div /><div className="timeline-track"><div className="daylight-band"><i style={{ left: `${((hour - 7) / 13) * 100}%` }} /></div><div className="time-ticks"><span>7 AM</span><span>10 AM</span><span>1 PM</span><span>4 PM</span><span>8 PM</span></div></div><div /></div>
     </section>
