@@ -161,17 +161,137 @@ export const polygonCentroid = (boundary: Point2[]) => {
   return { x: xSum / (3 * crossSum), y: ySum / (3 * crossSum) };
 };
 
-export function rebuildSceneRooms(scene: SceneDocument): SceneDocument {
+const triangleCross = (a: Point2, b: Point2, c: Point2) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+
+const pointInTriangle = (point: Point2, a: Point2, b: Point2, c: Point2) => {
+  const first = triangleCross(a, b, point);
+  const second = triangleCross(b, c, point);
+  const third = triangleCross(c, a, point);
+  return first >= -1e-9 && second >= -1e-9 && third >= -1e-9;
+};
+
+/** Ear-clips a simple polygon into counter-clockwise triangles. */
+const triangulatePolygon = (boundary: Point2[]) => {
+  const points = signedPolygonArea(boundary) >= 0 ? [...boundary] : [...boundary].reverse();
+  const indices = points.map((_, index) => index);
+  const triangles: Point2[][] = [];
+  let guard = 0;
+  while (indices.length > 3 && guard < points.length * points.length) {
+    guard += 1;
+    let clipped = false;
+    for (let position = 0; position < indices.length; position += 1) {
+      const previous = indices[(position - 1 + indices.length) % indices.length];
+      const current = indices[position];
+      const next = indices[(position + 1) % indices.length];
+      const a = points[previous];
+      const b = points[current];
+      const c = points[next];
+      if (triangleCross(a, b, c) <= 1e-9) continue;
+      const containsVertex = indices.some((index) => index !== previous && index !== current && index !== next && pointInTriangle(points[index], a, b, c));
+      if (containsVertex) continue;
+      triangles.push([a, b, c]);
+      indices.splice(position, 1);
+      clipped = true;
+      break;
+    }
+    if (!clipped) break;
+  }
+  if (indices.length === 3) triangles.push(indices.map((index) => points[index]));
+  return triangles;
+};
+
+const lineIntersection = (start: Point2, end: Point2, clipStart: Point2, clipEnd: Point2): Point2 => {
+  const segmentX = end.x - start.x;
+  const segmentY = end.y - start.y;
+  const clipX = clipEnd.x - clipStart.x;
+  const clipY = clipEnd.y - clipStart.y;
+  const denominator = segmentX * clipY - segmentY * clipX;
+  if (Math.abs(denominator) < 1e-12) return end;
+  const ratio = ((clipStart.x - start.x) * clipY - (clipStart.y - start.y) * clipX) / denominator;
+  return { x: start.x + ratio * segmentX, y: start.y + ratio * segmentY };
+};
+
+const intersectConvexPolygons = (subject: Point2[], clip: Point2[]) => clip.reduce<Point2[]>((output, clipStart, index) => {
+  if (output.length === 0) return output;
+  const clipEnd = clip[(index + 1) % clip.length];
+  const input = output;
+  const next: Point2[] = [];
+  input.forEach((end, subjectIndex) => {
+    const start = input[(subjectIndex - 1 + input.length) % input.length];
+    const startInside = triangleCross(clipStart, clipEnd, start) >= -1e-9;
+    const endInside = triangleCross(clipStart, clipEnd, end) >= -1e-9;
+    if (endInside) {
+      if (!startInside) next.push(lineIntersection(start, end, clipStart, clipEnd));
+      next.push(end);
+    } else if (startInside) {
+      next.push(lineIntersection(start, end, clipStart, clipEnd));
+    }
+  });
+  return next;
+}, subject);
+
+export function polygonOverlapArea(first: Point2[], second: Point2[]) {
+  const firstTriangles = triangulatePolygon(first);
+  const secondTriangles = triangulatePolygon(second);
+  return firstTriangles.reduce((total, firstTriangle) => total + secondTriangles.reduce((subtotal, secondTriangle) => {
+    const intersection = intersectConvexPolygons(firstTriangle, secondTriangle);
+    return subtotal + (intersection.length >= 3 ? polygonArea(intersection) : 0);
+  }, 0), 0);
+}
+
+export type RoomReconciliation = {
+  mappings: Array<{ oldRoomId: string; newRoomId: string; overlapArea: number }>;
+  removedRoomIds: string[];
+  newRoomIds: string[];
+  affectedFurniture: Array<{ furnitureId: string; oldRoomId: string; newRoomId: string }>;
+};
+
+const stableBoundaryId = (boundary: Point2[]) => {
+  const normalized = boundary.map((point) => `${point.x.toFixed(4)},${point.y.toFixed(4)}`).sort().join('|');
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash ^= normalized.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `room-${(hash >>> 0).toString(36)}`;
+};
+
+export function rebuildSceneRoomsWithReconciliation(scene: SceneDocument): { scene: SceneDocument; reconciliation: RoomReconciliation } {
   const existingRooms = scene.architecture.filter((element): element is RoomElement => element.kind === 'room');
   const boundaries = deriveRoomBoundaries(scene.architecture).sort((a, b) => polygonArea(b) - polygonArea(a));
-  const availableRooms = new Set(existingRooms.map((room) => room.id));
+  const candidates = boundaries.flatMap((boundary, boundaryIndex) => existingRooms.map((room) => ({
+    boundaryIndex,
+    room,
+    overlapArea: polygonOverlapArea(boundary, room.boundary),
+    centroidDistance: Math.hypot(polygonCentroid(boundary).x - polygonCentroid(room.boundary).x, polygonCentroid(boundary).y - polygonCentroid(room.boundary).y),
+  }))).filter((candidate) => candidate.overlapArea > 1e-6).sort((a, b) => b.overlapArea - a.overlapArea
+    || a.centroidDistance - b.centroidDistance
+    || a.room.id.localeCompare(b.room.id)
+    || a.boundaryIndex - b.boundaryIndex);
+  const matchedBoundaryIndexes = new Set<number>();
+  const matchedRoomIds = new Set<string>();
+  const matches = new Map<number, { room: RoomElement; overlapArea: number }>();
+  candidates.forEach((candidate) => {
+    if (matchedBoundaryIndexes.has(candidate.boundaryIndex) || matchedRoomIds.has(candidate.room.id)) return;
+    matchedBoundaryIndexes.add(candidate.boundaryIndex);
+    matchedRoomIds.add(candidate.room.id);
+    matches.set(candidate.boundaryIndex, { room: candidate.room, overlapArea: candidate.overlapArea });
+  });
+  const usedIds = new Set(scene.architecture.filter((element) => element.kind !== 'room').map((element) => element.id));
+  const existingRoomIds = new Set(existingRooms.map((room) => room.id));
+  const generatedRoomIds: string[] = [];
   const rooms = boundaries.map((boundary, index): RoomElement => {
-    const center = polygonCentroid(boundary);
-    const face = { id: 'derived-face', kind: 'room', name: '', boundary, floorElevation: 0, ceilingHeight: 2.74 } satisfies RoomElement;
-    const match = existingRooms.find((room) => availableRooms.has(room.id) && (pointInRoom(center, room) || pointInRoom(polygonCentroid(room.boundary), face)));
-    if (match) availableRooms.delete(match.id);
+    const match = matches.get(index)?.room;
+    let id = match?.id ?? stableBoundaryId(boundary);
+    let suffix = 2;
+    while (usedIds.has(id) || (!match && existingRoomIds.has(id))) {
+      id = `${stableBoundaryId(boundary)}-${suffix}`;
+      suffix += 1;
+    }
+    usedIds.add(id);
+    if (!match) generatedRoomIds.push(id);
     return {
-      id: match?.id ?? `room-${crypto.randomUUID()}`,
+      id,
       kind: 'room',
       name: match?.name ?? `Room ${index + 1}`,
       boundary,
@@ -181,17 +301,29 @@ export function rebuildSceneRooms(scene: SceneDocument): SceneDocument {
   });
   const withoutRooms = scene.architecture.filter((element) => element.kind !== 'room');
   const architecture: ArchitecturalElement[] = [...rooms, ...withoutRooms];
-  return {
+  const affectedFurniture: RoomReconciliation['affectedFurniture'] = [];
+  const layouts = scene.layouts.map((layout) => ({
+    ...layout,
+    elements: layout.elements.map((element) => {
+      const nextRoomId = roomForPoint(architecture, { x: element.transform.position.x, y: element.transform.position.z }, element.roomId)?.id ?? rooms[0]?.id ?? element.roomId;
+      if (nextRoomId !== element.roomId) affectedFurniture.push({ furnitureId: element.id, oldRoomId: element.roomId, newRoomId: nextRoomId });
+      return { ...element, roomId: nextRoomId };
+    }),
+  }));
+  return { scene: {
     ...scene,
     architecture,
-    layouts: scene.layouts.map((layout) => ({
-      ...layout,
-      elements: layout.elements.map((element) => ({
-        ...element,
-        roomId: roomForPoint(architecture, { x: element.transform.position.x, y: element.transform.position.z }, element.roomId)?.id ?? rooms[0]?.id ?? element.roomId,
-      })),
-    })),
-  };
+    layouts,
+  }, reconciliation: {
+    mappings: [...matches.entries()].map(([boundaryIndex, match]) => ({ oldRoomId: match.room.id, newRoomId: rooms[boundaryIndex].id, overlapArea: Number(match.overlapArea.toFixed(6)) })),
+    removedRoomIds: existingRooms.filter((room) => !matchedRoomIds.has(room.id)).map((room) => room.id),
+    newRoomIds: generatedRoomIds,
+    affectedFurniture,
+  } };
+}
+
+export function rebuildSceneRooms(scene: SceneDocument): SceneDocument {
+  return rebuildSceneRoomsWithReconciliation(scene).scene;
 }
 
 export function isRectangularRoom(room: RoomElement) {

@@ -37,6 +37,12 @@ export type WebMcpErrorCode =
   | 'NETWORK_ERROR'
   | 'PERMISSION_DENIED'
   | 'UNSUPPORTED'
+  | 'NO_HISTORY'
+  | 'CONFIRMATION_REQUIRED'
+  | 'PREREQUISITE_REQUIRED'
+  | 'GEOMETRY_CONFLICT'
+  | 'OPENING_DOES_NOT_FIT'
+  | 'EXTERIOR_LOOP_INVALID'
   | 'CANCELLED'
   | 'INTERNAL_ERROR';
 
@@ -54,6 +60,7 @@ export type WebMcpFailure = {
   message: string;
   retryable: boolean;
   currentRevision?: number;
+  data?: Record<string, unknown>;
 };
 
 export type WebMcpResult<T = Record<string, unknown>> = WebMcpSuccess<T> | WebMcpFailure;

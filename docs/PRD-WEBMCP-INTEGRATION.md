@@ -7,6 +7,8 @@
 
 **Implementation note:** The MVP tool catalog, progressive registration adapter, shared editor commands, contract tests, and feature flag described below are implemented. Deferred architecture mutations and the other listed non-goals remain out of scope.
 
+Full semantic action parity is specified separately in `docs/PRD-WEBMCP-FULL-PARITY.md`.
+
 ## Summary
 
 Make Dwellwise agent-ready by exposing a small, safe set of project and apartment-editing capabilities through WebMCP. A compatible browser agent should be able to understand the active Dwellwise page, inspect the user's apartments, and perform supported actions such as creating a project, renaming it, adding furniture, moving furniture, and changing the preview state.

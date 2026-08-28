@@ -53,6 +53,9 @@ const dashboardModule = loadTypeScript('app/webmcp/dashboard-tools.ts');
 const editorModule = loadTypeScript('app/webmcp/editor-tools.ts');
 const registrationModule = loadTypeScript('app/webmcp/register-tools.ts');
 const resultModule = loadTypeScript('app/webmcp/result.ts');
+const manifestModule = loadTypeScript('lib/application/action-manifest.ts');
+const architectureModule = loadTypeScript('lib/domain/architecture.ts');
+const architectureCommandsModule = loadTypeScript('lib/application/architecture-commands.ts');
 
 const executeOptions = () => ({ signal: new AbortController().signal });
 const byName = (tools, name) => tools.find((tool) => tool.name === name);
@@ -85,6 +88,19 @@ const snapshot = {
     transform: { position: { x: 2, y: 0, z: 2 }, rotation: { x: 0, y: 90, z: 0 } },
   }],
   view: 'plan', editMode: 'furnish', hour: 14.5, camera: 0, measurements: false,
+  zoom: 90, selection: { kind: 'furniture', entityId: 'object-desk' }, canUndo: true, canRedo: false,
+  architecturePreviewActive: false, confirmationActive: false,
+  availableTools: [
+    'dwellwise.get_project_summary', 'dwellwise.list_furniture', 'dwellwise.list_architecture',
+    'dwellwise.rename_project', 'dwellwise.add_furniture', 'dwellwise.update_furniture',
+    'dwellwise.remove_furniture', 'dwellwise.resize_apartment',
+    'dwellwise.rename_room', 'dwellwise.add_wall', 'dwellwise.update_wall', 'dwellwise.remove_wall',
+    'dwellwise.add_exterior_corner', 'dwellwise.remove_exterior_corner', 'dwellwise.add_opening',
+    'dwellwise.update_opening', 'dwellwise.remove_opening',
+    'dwellwise.set_sunlight_preview', 'dwellwise.select_entity', 'dwellwise.undo', 'dwellwise.redo',
+    'dwellwise.set_plan_zoom', 'dwellwise.reset_3d_camera', 'dwellwise.go_to_dashboard',
+    'dwellwise.prepare_reset_project',
+  ],
 };
 
 test('dashboard exposes the PRD tool catalog and ownership-scoped projections', async () => {
@@ -92,10 +108,13 @@ test('dashboard exposes the PRD tool catalog and ownership-scoped projections', 
   const opened = [];
   const tools = dashboardModule.buildDashboardTools({
     getProjects: () => projects,
+    refreshProjects: async () => projects,
     createProject: async (name) => ({ ...projects[0], id: 'project-2', name: name ?? 'Untitled apartment', revision: 1 }),
+    renameProject: async (projectId, name) => ({ ...projects[0], id: projectId, name, revision: 8 }),
+    prepareDeleteProject: (project) => opened.push(`delete:${project.id}`),
     openProject: (id) => opened.push(id),
   });
-  assert.deepEqual(Array.from(tools, (tool) => tool.name), ['dwellwise.list_projects', 'dwellwise.create_project', 'dwellwise.open_project']);
+  assert.deepEqual(Array.from(tools, (tool) => tool.name), ['dwellwise.list_projects', 'dwellwise.rename_project', 'dwellwise.prepare_delete_project', 'dwellwise.create_project', 'dwellwise.open_project']);
   tools.forEach((tool) => assertClosedObjectSchemas(tool.inputSchema));
 
   const listed = await byName(tools, 'dwellwise.list_projects').execute({}, executeOptions());
@@ -108,11 +127,18 @@ test('dashboard exposes the PRD tool catalog and ownership-scoped projections', 
   assert.equal(created.projectId, 'project-2');
   assert.equal(created.revision, 1);
 
+  const renamed = await byName(tools, 'dwellwise.rename_project').execute({ projectId: 'project-1', name: 'Renamed apartment' }, executeOptions());
+  assert.equal(renamed.ok, true);
+  assert.equal(renamed.revision, 8);
+
+  const prepared = await byName(tools, 'dwellwise.prepare_delete_project').execute({ projectId: 'project-1' }, executeOptions());
+  assert.deepEqual({ ok: prepared.ok, code: prepared.code, saved: prepared.data.saved }, { ok: false, code: 'CONFIRMATION_REQUIRED', saved: false });
+
   const invalidOpen = await byName(tools, 'dwellwise.open_project').execute({ projectId: 'someone-elses-project' }, executeOptions());
   assert.deepEqual({ ok: invalidOpen.ok, code: invalidOpen.code }, { ok: false, code: 'NOT_FOUND' });
   const validOpen = await byName(tools, 'dwellwise.open_project').execute({ projectId: 'project-1' }, executeOptions());
   assert.equal(validOpen.ok, true);
-  assert.deepEqual(opened, ['project-1']);
+  assert.deepEqual(opened, ['delete:project-1', 'project-1']);
 });
 
 test('editor exposes all MVP tools with closed bounded schemas', () => {
@@ -123,19 +149,40 @@ test('editor exposes all MVP tools with closed bounded schemas', () => {
     updateFurniture: async () => resultModule.toolSuccess('updated'),
     removeFurniture: async () => resultModule.toolSuccess('removed'),
     resizeApartment: async () => resultModule.toolSuccess('resized'),
+    renameRoom: async () => resultModule.toolSuccess('room renamed'),
+    addWall: async () => resultModule.toolSuccess('wall added'),
+    updateWall: async () => resultModule.toolSuccess('wall updated'),
+    removeWall: async () => resultModule.toolSuccess('wall removed'),
+    addExteriorCorner: async () => resultModule.toolSuccess('corner added'),
+    removeExteriorCorner: async () => resultModule.toolSuccess('corner removed'),
+    addOpening: async () => resultModule.toolSuccess('opening added'),
+    updateOpening: async () => resultModule.toolSuccess('opening updated'),
+    removeOpening: async () => resultModule.toolSuccess('opening removed'),
     setEditorView: () => resultModule.toolSuccess('view'),
     setSunlightPreview: () => resultModule.toolSuccess('sunlight'),
     selectEntity: () => resultModule.toolSuccess('selected'),
+    undo: async () => resultModule.toolSuccess('undone'),
+    redo: async () => resultModule.toolSuccess('redone'),
+    setPlanZoom: () => resultModule.toolSuccess('zoomed'),
+    reset3dCamera: () => resultModule.toolSuccess('reset'),
+    goToDashboard: () => resultModule.toolSuccess('dashboard'),
+    prepareResetProject: () => resultModule.toolFailure('CONFIRMATION_REQUIRED', 'review'),
   };
   const tools = editorModule.buildEditorTools(commands);
   assert.deepEqual(Array.from(tools, (tool) => tool.name), [
     'dwellwise.get_project_summary', 'dwellwise.list_furniture', 'dwellwise.list_architecture',
     'dwellwise.rename_project', 'dwellwise.add_furniture', 'dwellwise.update_furniture',
-    'dwellwise.remove_furniture', 'dwellwise.resize_apartment', 'dwellwise.set_editor_view',
-    'dwellwise.set_sunlight_preview', 'dwellwise.select_entity',
+    'dwellwise.remove_furniture', 'dwellwise.resize_apartment',
+    'dwellwise.rename_room', 'dwellwise.add_wall', 'dwellwise.update_wall',
+    'dwellwise.remove_wall', 'dwellwise.add_exterior_corner', 'dwellwise.remove_exterior_corner',
+    'dwellwise.add_opening', 'dwellwise.update_opening', 'dwellwise.remove_opening', 'dwellwise.set_editor_view',
+    'dwellwise.set_sunlight_preview', 'dwellwise.select_entity', 'dwellwise.undo',
+    'dwellwise.redo', 'dwellwise.set_plan_zoom', 'dwellwise.reset_3d_camera',
+    'dwellwise.go_to_dashboard',
+    'dwellwise.prepare_reset_project',
   ]);
   tools.forEach((tool) => {
-    assert.match(tool.name, /^dwellwise\.[a-z_]+$/);
+    assert.match(tool.name, /^dwellwise\.[a-z0-9_]+$/);
     assert.ok(tool.name.length <= 128);
     assertClosedObjectSchemas(tool.inputSchema);
   });
@@ -146,12 +193,17 @@ test('editor exposes all MVP tools with closed bounded schemas', () => {
 
 test('editor read tools return bounded summaries without raw or private project state', async () => {
   const unused = async () => resultModule.toolSuccess('unused');
-  const tools = editorModule.buildEditorTools({ getSnapshot: () => snapshot, renameProject: unused, addFurniture: unused, updateFurniture: unused, removeFurniture: unused, resizeApartment: unused, setEditorView: unused, setSunlightPreview: unused, selectEntity: unused });
+  const tools = editorModule.buildEditorTools({ getSnapshot: () => snapshot, renameProject: unused, addFurniture: unused, updateFurniture: unused, removeFurniture: unused, resizeApartment: unused, renameRoom: unused, addWall: unused, updateWall: unused, removeWall: unused, addExteriorCorner: unused, removeExteriorCorner: unused, addOpening: unused, updateOpening: unused, removeOpening: unused, setEditorView: unused, setSunlightPreview: unused, selectEntity: unused, undo: unused, redo: unused, setPlanZoom: unused, reset3dCamera: unused, goToDashboard: unused, prepareResetProject: unused });
   const project = await byName(tools, 'dwellwise.get_project_summary').execute({}, executeOptions());
   assert.equal(project.ok, true);
   assert.equal(project.revision, 7);
   assert.equal(project.data.project.units, 'meters');
   assert.deepEqual(plain(project.data.project.counts), { rooms: 1, walls: 1, doors: 0, windows: 1, furniture: 1 });
+  assert.equal(project.data.project.canUndo, true);
+  assert.equal(project.data.project.canRedo, false);
+  assert.equal(project.data.project.planZoom, 90);
+  assert.deepEqual(plain(project.data.project.selection), { kind: 'furniture', entityId: 'object-desk' });
+  assert.equal(project.data.project.availableTools.includes('dwellwise.update_furniture'), true);
   assert.equal('scene' in project.data.project, false);
 
   const furniture = await byName(tools, 'dwellwise.list_furniture').execute({}, executeOptions());
@@ -163,10 +215,155 @@ test('editor read tools return bounded summaries without raw or private project 
   assert.equal(JSON.stringify(architecture).includes('ownerProfileId'), false);
 });
 
+test('list tools paginate, filter, and reject cursors after consistency changes', async () => {
+  const projects = Array.from({ length: 3 }, (_, index) => ({ id: `project-${index}`, name: `Project ${index}`, revision: 1, createdAt: '2026-08-28T10:00:00Z', updatedAt: `2026-08-28T11:00:0${index}Z` }));
+  let visibleProjects = projects;
+  const dashboardTools = dashboardModule.buildDashboardTools({
+    getProjects: () => visibleProjects,
+    refreshProjects: async () => visibleProjects,
+    createProject: async () => projects[0],
+    renameProject: async () => projects[0],
+    prepareDeleteProject: () => undefined,
+    openProject: () => undefined,
+  });
+  const firstProjects = await byName(dashboardTools, 'dwellwise.list_projects').execute({ limit: 2 }, executeOptions());
+  assert.equal(firstProjects.data.projects.length, 2);
+  assert.equal(typeof firstProjects.data.nextCursor, 'string');
+  visibleProjects = projects.map((project, index) => index === 0 ? { ...project, revision: 2 } : project);
+  const staleProjects = await byName(dashboardTools, 'dwellwise.list_projects').execute({ limit: 2, cursor: firstProjects.data.nextCursor }, executeOptions());
+  assert.deepEqual({ ok: staleProjects.ok, code: staleProjects.code }, { ok: false, code: 'REVISION_CONFLICT' });
+
+  const secondObject = { ...snapshot.objects[0], id: 'object-desk-2', roomId: 'room-other' };
+  let currentSnapshot = { ...snapshot, objects: [snapshot.objects[0], secondObject] };
+  const unused = async () => resultModule.toolSuccess('unused');
+  const editorTools = editorModule.buildEditorTools({ getSnapshot: () => currentSnapshot, renameProject: unused, addFurniture: unused, updateFurniture: unused, removeFurniture: unused, resizeApartment: unused, renameRoom: unused, addWall: unused, updateWall: unused, removeWall: unused, addExteriorCorner: unused, removeExteriorCorner: unused, addOpening: unused, updateOpening: unused, removeOpening: unused, setEditorView: unused, setSunlightPreview: unused, selectEntity: unused, undo: unused, redo: unused, setPlanZoom: unused, reset3dCamera: unused, goToDashboard: unused, prepareResetProject: unused });
+  const filteredFurniture = await byName(editorTools, 'dwellwise.list_furniture').execute({ roomId: 'room-main', limit: 1 }, executeOptions());
+  assert.equal(filteredFurniture.data.furniture.length, 1);
+  assert.equal(filteredFurniture.data.furniture[0].roomId, 'room-main');
+  const firstArchitecture = await byName(editorTools, 'dwellwise.list_architecture').execute({ kind: 'opening', limit: 1 }, executeOptions());
+  assert.equal(firstArchitecture.data.architecture[0].kind, 'opening');
+
+  const firstFurniture = await byName(editorTools, 'dwellwise.list_furniture').execute({ limit: 1 }, executeOptions());
+  currentSnapshot = { ...currentSnapshot, project: { ...currentSnapshot.project, revision: 8 } };
+  const staleFurniture = await byName(editorTools, 'dwellwise.list_furniture').execute({ limit: 1, cursor: firstFurniture.data.nextCursor }, executeOptions());
+  assert.deepEqual({ ok: staleFurniture.ok, code: staleFurniture.code }, { ok: false, code: 'REVISION_CONFLICT' });
+});
+
+test('action manifest accounts for every registered tool and documents every exclusion', () => {
+  const noop = async () => resultModule.toolSuccess('ok');
+  const dashboardTools = dashboardModule.buildDashboardTools({ getProjects: () => [], refreshProjects: async () => [], createProject: async () => ({}), renameProject: async () => ({}), prepareDeleteProject: () => undefined, openProject: () => undefined });
+  const editorTools = editorModule.buildEditorTools({ getSnapshot: () => snapshot, renameProject: noop, addFurniture: noop, updateFurniture: noop, removeFurniture: noop, resizeApartment: noop, renameRoom: noop, addWall: noop, updateWall: noop, removeWall: noop, addExteriorCorner: noop, removeExteriorCorner: noop, addOpening: noop, updateOpening: noop, removeOpening: noop, setEditorView: noop, setSunlightPreview: noop, selectEntity: noop, undo: noop, redo: noop, setPlanZoom: noop, reset3dCamera: noop, goToDashboard: noop, prepareResetProject: noop });
+  const registered = [...new Set([...dashboardTools, ...editorTools].map((tool) => tool.name))].sort();
+  const covered = [...new Set(manifestModule.COVERED_WEBMCP_TOOLS)].sort();
+  assert.deepEqual(covered, registered);
+
+  const ids = manifestModule.ACTION_MANIFEST.map((entry) => entry.id);
+  assert.equal(new Set(ids).size, ids.length, 'manifest action IDs must be unique');
+  for (const entry of manifestModule.ACTION_MANIFEST) {
+    assert.ok(entry.humanEntryPoints.length > 0, `${entry.id} must name its human entry points`);
+    assert.ok(entry.sharedCommand, `${entry.id} must identify its shared command`);
+    assert.ok(entry.availability, `${entry.id} must document availability`);
+    if (entry.status === 'covered') {
+      assert.ok(entry.webMcpTool, `${entry.id} must name its covered tool`);
+      assert.ok(entry.testIds.length > 0, `${entry.id} must name at least one test`);
+    } else {
+      assert.ok(entry.justification, `${entry.id} must justify its temporary or UI-only status`);
+    }
+    if (entry.effect === 'irreversible') {
+      assert.equal(entry.confirmationPolicy, 'human_required', `${entry.id} must require human confirmation`);
+      if (entry.status === 'covered') assert.match(entry.webMcpTool, /^dwellwise\.prepare_/, `${entry.id} must expose only a prepare tool`);
+    }
+  }
+});
+
+test('room rebuilding reconciles identity by polygon overlap and reports furniture changes', () => {
+  const splitScene = {
+    ...scene,
+    architecture: [
+      { id: 'room-original', kind: 'room', name: 'Studio', boundary: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 2 }, { x: 0, y: 2 }], floorElevation: 0, ceilingHeight: 2.7 },
+      { id: 'wall-top', kind: 'wall', start: { x: 0, y: 0 }, end: { x: 4, y: 0 }, thickness: 0.12, height: 2.7 },
+      { id: 'wall-right', kind: 'wall', start: { x: 4, y: 0 }, end: { x: 4, y: 2 }, thickness: 0.12, height: 2.7 },
+      { id: 'wall-bottom', kind: 'wall', start: { x: 4, y: 2 }, end: { x: 0, y: 2 }, thickness: 0.12, height: 2.7 },
+      { id: 'wall-left', kind: 'wall', start: { x: 0, y: 2 }, end: { x: 0, y: 0 }, thickness: 0.12, height: 2.7 },
+      { id: 'wall-divider', kind: 'wall', start: { x: 1, y: 0 }, end: { x: 1, y: 2 }, thickness: 0.12, height: 2.7 },
+    ],
+    layouts: [{ id: 'layout-a', name: 'Layout A', elements: [{ id: 'furniture-left', kind: 'furniture', catalogItemId: 'catalog-desk', roomId: 'room-original', transform: { position: { x: 0.5, y: 0, z: 1 }, rotation: { x: 0, y: 0, z: 0 } }, clearance: 0.1 }] }],
+  };
+  const first = architectureModule.rebuildSceneRoomsWithReconciliation(splitScene);
+  const rebuiltRooms = first.scene.architecture.filter((element) => element.kind === 'room');
+  assert.equal(rebuiltRooms.length, 2);
+  assert.equal(rebuiltRooms.filter((room) => room.id === 'room-original').length, 1, 'one strongest match preserves the old identity');
+  assert.equal(rebuiltRooms.filter((room) => room.name === 'Studio').length, 1, 'an old name is never duplicated');
+  assert.equal(first.reconciliation.mappings.length, 1);
+  assert.equal(first.reconciliation.newRoomIds.length, 1);
+  assert.equal(first.reconciliation.affectedFurniture.length, 1);
+  assert.equal(first.reconciliation.affectedFurniture[0].furnitureId, 'furniture-left');
+
+  const second = architectureModule.rebuildSceneRoomsWithReconciliation(splitScene);
+  assert.deepEqual(plain(first.reconciliation.newRoomIds), plain(second.reconciliation.newRoomIds), 'new room IDs are deterministic');
+  assert.ok(Math.abs(architectureModule.polygonOverlapArea(
+    [{ x: 0, y: 0 }, { x: 3, y: 0 }, { x: 3, y: 2 }, { x: 0, y: 2 }],
+    [{ x: 2, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 2 }, { x: 2, y: 2 }],
+  ) - 2) < 1e-6);
+});
+
+test('shared architecture commands cover room, wall, corner, and opening action families', () => {
+  const shell = {
+    ...scene,
+    architecture: [
+      { id: 'room-main', kind: 'room', name: 'Main space', boundary: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 4 }, { x: 0, y: 4 }], floorElevation: 0, ceilingHeight: 2.7 },
+      { id: 'wall-north', kind: 'wall', start: { x: 0, y: 0 }, end: { x: 5, y: 0 }, thickness: 0.12, height: 2.7 },
+      { id: 'wall-east', kind: 'wall', start: { x: 5, y: 0 }, end: { x: 5, y: 4 }, thickness: 0.12, height: 2.7 },
+      { id: 'wall-south', kind: 'wall', start: { x: 5, y: 4 }, end: { x: 0, y: 4 }, thickness: 0.12, height: 2.7 },
+      { id: 'wall-west', kind: 'wall', start: { x: 0, y: 4 }, end: { x: 0, y: 0 }, thickness: 0.12, height: 2.7 },
+    ],
+    layouts: [{ id: 'layout-a', name: 'Layout A', elements: [] }],
+  };
+
+  const renamed = architectureCommandsModule.renameRoomCommand(shell, 'room-main', 'Living room');
+  assert.equal(renamed.ok, true);
+  assert.equal(renamed.scene.architecture.find((element) => element.id === 'room-main').name, 'Living room');
+
+  const addedWall = architectureCommandsModule.addWallCommand(renamed.scene, { x: 2.5, y: 0 }, { x: 2.5, y: 4 }, { createId: () => 'wall-divider' });
+  assert.equal(addedWall.ok, true);
+  assert.equal(addedWall.data.wallId, 'wall-divider');
+  assert.ok(addedWall.reconciliation);
+  const duplicateWall = architectureCommandsModule.addWallCommand(addedWall.scene, { x: 2.5, y: 0 }, { x: 2.5, y: 4 }, { createId: () => 'wall-duplicate' });
+  assert.deepEqual({ ok: duplicateWall.ok, code: duplicateWall.code }, { ok: false, code: 'GEOMETRY_CONFLICT' });
+  const updatedWall = architectureCommandsModule.updateWallCommand(addedWall.scene, 'wall-divider', { thickness: 0.2, height: 3 });
+  assert.equal(updatedWall.ok, true);
+  assert.equal(updatedWall.scene.architecture.find((element) => element.id === 'wall-divider').thickness, 0.2);
+  const removedWall = architectureCommandsModule.removeWallCommand(updatedWall.scene, 'wall-divider');
+  assert.equal(removedWall.ok, true);
+  const exteriorRemoval = architectureCommandsModule.removeWallCommand(shell, 'wall-north');
+  assert.deepEqual({ ok: exteriorRemoval.ok, code: exteriorRemoval.code }, { ok: false, code: 'PREREQUISITE_REQUIRED' });
+
+  const addedCorner = architectureCommandsModule.addExteriorCornerCommand(shell, 'wall-north', 1.5, () => 'wall-north-split');
+  assert.equal(addedCorner.ok, true);
+  assert.equal(addedCorner.data.offsetMeters, 1.5);
+  assert.equal(addedCorner.scene.architecture.some((element) => element.id === 'wall-north-split'), true);
+  const removedCorner = architectureCommandsModule.removeExteriorCornerCommand(addedCorner.scene, 'wall-north-split', 'start');
+  assert.equal(removedCorner.ok, true);
+
+  const addedOpening = architectureCommandsModule.addOpeningCommand(shell, { openingType: 'window', wallId: 'wall-north', width: 1.2, createId: () => 'window-new' });
+  assert.equal(addedOpening.ok, true);
+  assert.equal(addedOpening.data.openingId, 'window-new');
+  const updatedOpening = architectureCommandsModule.updateOpeningCommand(addedOpening.scene, 'window-new', { sillHeight: 1, height: 1 });
+  assert.equal(updatedOpening.ok, true);
+  const partialAdapterOpening = architectureCommandsModule.updateOpeningCommand(updatedOpening.scene, 'window-new', { offset: 2, width: undefined, height: undefined, sillHeight: undefined, swing: undefined, swingSide: undefined });
+  assert.equal(partialAdapterOpening.ok, true);
+  assert.equal(partialAdapterOpening.scene.architecture.find((element) => element.id === 'window-new').width, 1.2);
+  const invalidSwing = architectureCommandsModule.updateOpeningCommand(updatedOpening.scene, 'window-new', { swing: 'right' });
+  assert.deepEqual({ ok: invalidSwing.ok, code: invalidSwing.code }, { ok: false, code: 'INVALID_INPUT' });
+  const removedOpening = architectureCommandsModule.removeOpeningCommand(updatedOpening.scene, 'window-new');
+  assert.equal(removedOpening.ok, true);
+  assert.equal(removedOpening.scene.architecture.some((element) => element.id === 'window-new'), false);
+});
+
 test('editor tools validate inputs before invoking application commands', async () => {
   const calls = [];
   const success = async (...args) => { calls.push(args); return resultModule.toolSuccess('ok'); };
-  const tools = editorModule.buildEditorTools({ getSnapshot: () => snapshot, renameProject: success, addFurniture: success, updateFurniture: success, removeFurniture: success, resizeApartment: success, setEditorView: success, setSunlightPreview: success, selectEntity: success });
+  const tools = editorModule.buildEditorTools({ getSnapshot: () => snapshot, renameProject: success, addFurniture: success, updateFurniture: success, removeFurniture: success, resizeApartment: success, renameRoom: success, addWall: success, updateWall: success, removeWall: success, addExteriorCorner: success, removeExteriorCorner: success, addOpening: success, updateOpening: success, removeOpening: success, setEditorView: success, setSunlightPreview: success, selectEntity: success, undo: success, redo: success, setPlanZoom: success, reset3dCamera: success, goToDashboard: success, prepareResetProject: success });
 
   const invalidAdd = await byName(tools, 'dwellwise.add_furniture').execute({ name: 'Desk', category: 'desk', roomId: 'room-main', dimensions: { width: 0, depth: 1, height: 1 } }, executeOptions());
   assert.deepEqual({ ok: invalidAdd.ok, code: invalidAdd.code }, { ok: false, code: 'INVALID_INPUT' });
@@ -174,12 +371,60 @@ test('editor tools validate inputs before invoking application commands', async 
   assert.deepEqual({ ok: invalidUpdate.ok, code: invalidUpdate.code }, { ok: false, code: 'INVALID_INPUT' });
   const invalidResize = await byName(tools, 'dwellwise.resize_apartment').execute({ width: 31, depth: 4, height: 2.7 }, executeOptions());
   assert.deepEqual({ ok: invalidResize.ok, code: invalidResize.code }, { ok: false, code: 'INVALID_INPUT' });
+  const invalidZoom = await byName(tools, 'dwellwise.set_plan_zoom').execute({ zoom: 49 }, executeOptions());
+  assert.deepEqual({ ok: invalidZoom.ok, code: invalidZoom.code }, { ok: false, code: 'INVALID_INPUT' });
+  const staticEvaluation = await byName(tools, 'dwellwise.set_editor_view').execute({ view: 'evaluation' }, executeOptions());
+  assert.deepEqual({ ok: staticEvaluation.ok, code: staticEvaluation.code }, { ok: false, code: 'INVALID_INPUT' });
+  const invalidWindowSwing = await byName(tools, 'dwellwise.add_opening').execute({ openingType: 'window', wallId: 'wall-south', swing: 'left' }, executeOptions());
+  assert.deepEqual({ ok: invalidWindowSwing.ok, code: invalidWindowSwing.code }, { ok: false, code: 'INVALID_INPUT' });
   assert.equal(calls.length, 0);
 
   const validUpdate = await byName(tools, 'dwellwise.update_furniture').execute({ furnitureId: 'object-desk', position: { x: 3, z: 2 }, rotationY: 180 }, executeOptions());
   assert.equal(validUpdate.ok, true);
   assert.equal(calls.length, 1);
   assert.deepEqual(plain(calls[0][0]), { furnitureId: 'object-desk', position: { x: 3, z: 2 }, rotationY: 180 });
+
+  const validZoom = await byName(tools, 'dwellwise.set_plan_zoom').execute({ zoom: 105 }, executeOptions());
+  assert.equal(validZoom.ok, true);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1][0], 105);
+});
+
+test('history tools stay registered and preserve structured NO_HISTORY results', async () => {
+  const unused = async () => resultModule.toolSuccess('unused');
+  const noHistory = async () => resultModule.toolFailure('NO_HISTORY', 'There is no available change to undo.');
+  const tools = editorModule.buildEditorTools({ getSnapshot: () => snapshot, renameProject: unused, addFurniture: unused, updateFurniture: unused, removeFurniture: unused, resizeApartment: unused, renameRoom: unused, addWall: unused, updateWall: unused, removeWall: unused, addExteriorCorner: unused, removeExteriorCorner: unused, addOpening: unused, updateOpening: unused, removeOpening: unused, setEditorView: unused, setSunlightPreview: unused, selectEntity: unused, undo: noHistory, redo: noHistory, setPlanZoom: unused, reset3dCamera: unused, goToDashboard: unused, prepareResetProject: unused });
+  const undo = await byName(tools, 'dwellwise.undo').execute({}, executeOptions());
+  const redo = await byName(tools, 'dwellwise.redo').execute({}, executeOptions());
+  assert.deepEqual({ ok: undo.ok, code: undo.code }, { ok: false, code: 'NO_HISTORY' });
+  assert.deepEqual({ ok: redo.ok, code: redo.code }, { ok: false, code: 'NO_HISTORY' });
+});
+
+test('destructive WebMCP actions only prepare trusted human confirmation', async () => {
+  let preparedProjectId = '';
+  const project = { id: 'project-1', name: 'My apartment', revision: 7, createdAt: '2026-08-28T10:00:00Z', updatedAt: '2026-08-28T11:00:00Z' };
+  const dashboardTools = dashboardModule.buildDashboardTools({
+    getProjects: () => [project], refreshProjects: async () => [project], createProject: async () => project,
+    renameProject: async () => project, prepareDeleteProject: (target) => { preparedProjectId = target.id; }, openProject: () => undefined,
+  });
+  const deletion = await byName(dashboardTools, 'dwellwise.prepare_delete_project').execute({ projectId: project.id }, executeOptions());
+  assert.deepEqual({ ok: deletion.ok, code: deletion.code, targetId: deletion.data.targetId, saved: deletion.data.saved }, { ok: false, code: 'CONFIRMATION_REQUIRED', targetId: project.id, saved: false });
+  assert.equal(preparedProjectId, project.id);
+  assert.equal('confirmed' in byName(dashboardTools, 'dwellwise.prepare_delete_project').inputSchema.properties, false);
+
+  const unused = async () => resultModule.toolSuccess('unused');
+  const editorTools = editorModule.buildEditorTools({ getSnapshot: () => snapshot, renameProject: unused, addFurniture: unused, updateFurniture: unused, removeFurniture: unused, resizeApartment: unused, renameRoom: unused, addWall: unused, updateWall: unused, removeWall: unused, addExteriorCorner: unused, removeExteriorCorner: unused, addOpening: unused, updateOpening: unused, removeOpening: unused, setEditorView: unused, setSunlightPreview: unused, selectEntity: unused, undo: unused, redo: unused, setPlanZoom: unused, reset3dCamera: unused, goToDashboard: unused, prepareResetProject: () => resultModule.toolFailure('CONFIRMATION_REQUIRED', 'Review the visible reset confirmation.', { data: { saved: false, targetId: project.id } }) });
+  const reset = await byName(editorTools, 'dwellwise.prepare_reset_project').execute({}, executeOptions());
+  assert.deepEqual({ ok: reset.ok, code: reset.code, saved: reset.data.saved }, { ok: false, code: 'CONFIRMATION_REQUIRED', saved: false });
+
+  const dashboardSource = readFileSync(resolve(root, 'app/page.tsx'), 'utf8');
+  const editorSource = readFileSync(resolve(root, 'app/ProjectEditor.tsx'), 'utf8');
+  const dialogSource = readFileSync(resolve(root, 'app/DestructiveConfirmationDialog.tsx'), 'utf8');
+  assert.equal(dashboardSource.includes('window.confirm'), false);
+  assert.equal(editorSource.includes('window.confirm'), false);
+  assert.match(dialogSource, /aria-modal="true"/);
+  assert.match(dialogSource, /event\.isTrusted/);
+  assert.match(dialogSource, /cancelRef\.current\?\.focus\(\)/);
 });
 
 test('executable tools use the latest callback and return structured cancellation', async () => {

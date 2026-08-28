@@ -2,14 +2,17 @@
 
 import { FormEvent, KeyboardEvent, PointerEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { ArchitecturalElement, OpeningElement, Point2, RoomElement, SceneDocument, WallElement } from '@/lib/domain/scene';
-import { getArchitectureBounds, isExteriorWall, isRectangularRoom, pointInRoom, polygonArea, polygonCentroid, rebuildSceneRooms, resizeSceneFootprint, roomForPoint, wallLength } from '@/lib/domain/architecture';
+import { getArchitectureBounds, isExteriorWall, isRectangularRoom, polygonArea, polygonCentroid, rebuildSceneRooms, resizeSceneFootprint, roomForPoint, wallLength } from '@/lib/domain/architecture';
 import { blankApartmentScene } from '@/lib/domain/demo-scene';
 import { getWindowExposureSummary } from '@/lib/domain/sunlight';
 import ApartmentScene from './ApartmentScene';
 import { useWebMcpTools } from '@/app/hooks/use-webmcp-tools';
-import { buildEditorTools, type AddFurnitureToolInput, type UpdateFurnitureToolInput } from '@/app/webmcp/editor-tools';
+import { buildEditorTools, CURRENT_EDITOR_TOOL_NAMES, type AddFurnitureToolInput, type AddOpeningToolInput, type AddWallToolInput, type UpdateFurnitureToolInput, type UpdateOpeningToolInput, type UpdateWallToolInput } from '@/app/webmcp/editor-tools';
 import { toolFailure, toolFailureFromMessage, toolSuccess } from '@/app/webmcp/result';
+import { addExteriorCornerCommand, addOpeningCommand, addWallCommand, removeExteriorCornerCommand, removeOpeningCommand, removeWallCommand, renameRoomCommand, updateOpeningCommand, updateWallCommand, type ArchitectureCommandResult, type OpeningPatch, type WallPatch } from '@/lib/application/architecture-commands';
+import DestructiveConfirmationDialog from '@/app/DestructiveConfirmationDialog';
 
 type View = 'plan' | 'three' | 'evaluation';
 type LayoutKey = 'A' | 'B';
@@ -75,75 +78,9 @@ function resizeApartmentScene(scene: SceneDocument, width: number, depth: number
 }
 
 const samePoint = (a: Point2, b: Point2, tolerance = 0.015) => Math.hypot(a.x - b.x, a.y - b.y) <= tolerance;
-const geometryPointKey = (point: Point2) => `${Math.round(point.x * 100)},${Math.round(point.y * 100)}`;
-const orientation = (a: Point2, b: Point2, c: Point2) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-const pointOnSegment = (point: Point2, start: Point2, end: Point2) => Math.abs(orientation(start, end, point)) < 0.0001
-  && point.x >= Math.min(start.x, end.x) - 0.0001 && point.x <= Math.max(start.x, end.x) + 0.0001
-  && point.y >= Math.min(start.y, end.y) - 0.0001 && point.y <= Math.max(start.y, end.y) + 0.0001;
-
-const segmentsCross = (a: WallElement, b: WallElement) => {
-  if ([a.start, a.end].some((pointA) => [b.start, b.end].some((pointB) => samePoint(pointA, pointB)))) return false;
-  const abStart = orientation(a.start, a.end, b.start);
-  const abEnd = orientation(a.start, a.end, b.end);
-  const baStart = orientation(b.start, b.end, a.start);
-  const baEnd = orientation(b.start, b.end, a.end);
-  if (abStart * abEnd < 0 && baStart * baEnd < 0) return true;
-  return (Math.abs(abStart) < 0.0001 && pointOnSegment(b.start, a.start, a.end))
-    || (Math.abs(abEnd) < 0.0001 && pointOnSegment(b.end, a.start, a.end))
-    || (Math.abs(baStart) < 0.0001 && pointOnSegment(a.start, b.start, b.end))
-    || (Math.abs(baEnd) < 0.0001 && pointOnSegment(a.end, b.start, b.end));
-};
-
-const exteriorLoopError = (walls: WallElement[]) => {
-  if (walls.length < 3) return 'The exterior perimeter needs at least three walls.';
-  const degrees = new Map<string, number>();
-  walls.forEach((wall) => [wall.start, wall.end].forEach((point) => degrees.set(geometryPointKey(point), (degrees.get(geometryPointKey(point)) ?? 0) + 1)));
-  if ([...degrees.values()].some((degree) => degree !== 2)) return 'Exterior corners must remain connected.';
-  for (let first = 0; first < walls.length; first += 1) {
-    for (let second = first + 1; second < walls.length; second += 1) {
-      if (segmentsCross(walls[first], walls[second])) return 'Exterior walls cannot cross each other.';
-    }
-  }
-  const connected = new Set<string>([walls[0].id]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    walls.forEach((wall) => {
-      if (connected.has(wall.id)) return;
-      if (walls.some((candidate) => connected.has(candidate.id) && [wall.start, wall.end].some((point) => [candidate.start, candidate.end].some((candidatePoint) => samePoint(point, candidatePoint))))) {
-        connected.add(wall.id);
-        changed = true;
-      }
-    });
-  }
-  return connected.size === walls.length ? null : 'The exterior perimeter must remain one closed shape.';
-};
-
-function findOpeningPlacement(architecture: ArchitecturalElement[], wall: WallElement, preferredWidth: number, minimumWidth = preferredWidth) {
-  const clearance = 0.1;
-  const length = wallLength(wall);
-  const openings = architecture
-    .filter((element): element is OpeningElement => element.kind === 'opening' && element.wallId === wall.id)
-    .sort((a, b) => a.offset - b.offset);
-  const gaps: Array<{ start: number; end: number }> = [];
-  let cursor = clearance;
-  openings.forEach((opening) => {
-    gaps.push({ start: cursor, end: opening.offset - clearance });
-    cursor = Math.max(cursor, opening.offset + opening.width + clearance);
-  });
-  gaps.push({ start: cursor, end: length - clearance });
-
-  return gaps
-    .map((gap) => {
-      const width = Math.min(preferredWidth, gap.end - gap.start);
-      const offset = gap.start + (gap.end - gap.start - width) / 2;
-      return { width, offset };
-    })
-    .filter((placement) => placement.width >= minimumWidth)
-    .sort((a, b) => b.width - a.width || Math.abs(a.offset + a.width / 2 - length / 2) - Math.abs(b.offset + b.width / 2 - length / 2))[0];
-}
 
 export default function ProjectEditor({ projectId }: { projectId: string }) {
+  const router = useRouter();
   const [view, setView] = useState<View>('plan');
   const [editMode, setEditMode] = useState<EditMode>('furnish');
   const [compare, setCompare] = useState(false);
@@ -168,11 +105,18 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 });
   const [historyBusy, setHistoryBusy] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [pendingReset, setPendingReset] = useState<{ projectId: string; projectName: string; revision: number } | null>(null);
   const projectRevisionRef = useRef<number | null>(null);
   const projectRef = useRef<ApiProject | null>(null);
   const moveSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const undoStack = useRef<HistoryEntry[]>([]);
   const redoStack = useRef<HistoryEntry[]>([]);
+
+  useEffect(() => {
+    if (!pendingReset) return;
+    const timeout = window.setTimeout(() => setPendingReset((current) => current === pendingReset ? null : current), 60_000);
+    return () => window.clearTimeout(timeout);
+  }, [pendingReset]);
 
   const updateHistoryState = () => setHistoryState({ undo: undoStack.current.length, redo: redoStack.current.length });
 
@@ -198,6 +142,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     projectRevisionRef.current = project.revision;
     projectRef.current = project;
     setProject(project);
+    setPendingReset((current) => current && (current.projectId !== project.id || current.revision !== project.revision) ? null : current);
     setSceneObjects({ A: objectsFor('A'), B: objectsFor('B') });
   };
 
@@ -266,252 +211,54 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     return error;
   };
 
-  const addWall = async (start: Point2, end: Point2) => {
-    await moveSaveQueue.current;
-    const current = projectRef.current;
-    if (!current) return;
-    const bounds = getArchitectureBounds(current.scene.architecture);
-    const inside = (point: Point2) => point.x >= bounds.minX && point.x <= bounds.maxX && point.y >= bounds.minY && point.y <= bounds.maxY;
-    if (!inside(start) || !inside(end) || Math.hypot(end.x - start.x, end.y - start.y) < 0.1) {
-      setArchitectureMessage('Walls must be at least 0.10 m long and remain inside the apartment.');
-      return;
+  const persistArchitectureCommand = async (result: ArchitectureCommandResult, signal?: AbortSignal) => {
+    if (!result.ok) {
+      setArchitectureMessage(result.message);
+      return { error: result.message, result };
     }
-    const duplicate = current.scene.architecture.some((element) => element.kind === 'wall' && (
-      (Math.hypot(element.start.x - start.x, element.start.y - start.y) < 0.02 && Math.hypot(element.end.x - end.x, element.end.y - end.y) < 0.02)
-      || (Math.hypot(element.start.x - end.x, element.start.y - end.y) < 0.02 && Math.hypot(element.end.x - start.x, element.end.y - start.y) < 0.02)
-    ));
-    if (duplicate) {
-      setArchitectureMessage('A wall already exists at that location.');
-      return;
+    const error = await saveScene(result.scene, result.message, { signal });
+    if (error) return { error, result };
+    setArchitecturePreview(null);
+    setDrawingWall(false);
+    if (result.selection?.kind === 'room') {
+      setSelectedRoomId(result.selection.entityId); setSelectedWallId(''); setSelectedOpeningId('');
+    } else if (result.selection?.kind === 'wall') {
+      setSelectedWallId(result.selection.entityId); setSelectedRoomId(''); setSelectedOpeningId('');
+    } else if (result.selection?.kind === 'opening') {
+      setSelectedOpeningId(result.selection.entityId); setSelectedWallId(result.selection.wallId ?? ''); setSelectedRoomId('');
+    } else {
+      setSelectedWallId(''); setSelectedOpeningId(''); setSelectedRoomId('');
     }
-    const wall: WallElement = { id: `wall-${crypto.randomUUID()}`, kind: 'wall', start, end, thickness: 0.12, height: 2.74 };
-    const error = await saveScene(rebuildSceneRooms({ ...current.scene, architecture: [...current.scene.architecture, wall] }), `Wall added · ${wallLength(wall).toFixed(2)} m.`);
-    if (!error) {
-      setSelectedWallId(wall.id);
-      setDrawingWall(false);
-    }
+    return { error: null, result };
   };
 
-  const updateWall = async (wallId: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => {
-    await moveSaveQueue.current;
+  const currentScene = () => projectRef.current?.scene;
+  const addWall = async (start: Point2, end: Point2, signal?: AbortSignal) => persistArchitectureCommand(currentScene() ? addWallCommand(currentScene() as SceneDocument, start, end) : { ok: false, code: 'NOT_FOUND', message: 'The project is still loading.' }, signal);
+  const updateWall = async (wallId: string, patch: WallPatch, signal?: AbortSignal) => persistArchitectureCommand(currentScene() ? updateWallCommand(currentScene() as SceneDocument, wallId, patch) : { ok: false, code: 'NOT_FOUND', message: 'The project is still loading.' }, signal);
+  const deleteWall = async (wallId: string, signal?: AbortSignal) => persistArchitectureCommand(currentScene() ? removeWallCommand(currentScene() as SceneDocument, wallId) : { ok: false, code: 'NOT_FOUND', message: 'The project is still loading.' }, signal);
+  const addExteriorCorner = async (wallId: string, offsetMeters?: number, signal?: AbortSignal) => persistArchitectureCommand(currentScene() ? addExteriorCornerCommand(currentScene() as SceneDocument, wallId, offsetMeters) : { ok: false, code: 'NOT_FOUND', message: 'The project is still loading.' }, signal);
+  const removeExteriorCorner = async (wallId: string, endpoint: WallEndpoint, signal?: AbortSignal) => persistArchitectureCommand(currentScene() ? removeExteriorCornerCommand(currentScene() as SceneDocument, wallId, endpoint) : { ok: false, code: 'NOT_FOUND', message: 'The project is still loading.' }, signal);
+  const addOpening = async (input: Parameters<typeof addOpeningCommand>[1], signal?: AbortSignal) => persistArchitectureCommand(currentScene() ? addOpeningCommand(currentScene() as SceneDocument, input) : { ok: false, code: 'NOT_FOUND', message: 'The project is still loading.' }, signal);
+  const addDoor = async (wallId: string) => addOpening({ openingType: 'door', wallId });
+  const addWindow = async (wallId: string) => addOpening({ openingType: 'window', wallId });
+  const updateOpening = async (openingId: string, patch: OpeningPatch, signal?: AbortSignal) => persistArchitectureCommand(currentScene() ? updateOpeningCommand(currentScene() as SceneDocument, openingId, patch) : { ok: false, code: 'NOT_FOUND', message: 'The project is still loading.' }, signal);
+  const deleteOpening = async (openingId: string, signal?: AbortSignal) => persistArchitectureCommand(currentScene() ? removeOpeningCommand(currentScene() as SceneDocument, openingId) : { ok: false, code: 'NOT_FOUND', message: 'The project is still loading.' }, signal);
+  const renameRoom = async (roomId: string, name: string, signal?: AbortSignal) => persistArchitectureCommand(currentScene() ? renameRoomCommand(currentScene() as SceneDocument, roomId, name) : { ok: false, code: 'NOT_FOUND', message: 'The project is still loading.' }, signal);
+
+  const architectureToolResponse = async (operation: ReturnType<typeof persistArchitectureCommand>) => {
+    const outcome = await operation;
     const current = projectRef.current;
-    if (!current) return false;
-    const wall = current.scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === wallId);
-    if (!wall) return false;
-    const nextWall = { ...wall, ...patch };
-    const bounds = getArchitectureBounds(current.scene.architecture);
-    const currentWalls = current.scene.architecture.filter((element): element is WallElement => element.kind === 'wall');
-    const exteriorIds = new Set(currentWalls.filter((candidate) => isExteriorWall(candidate, bounds, current.scene.architecture)).map((candidate) => candidate.id));
-    const exterior = exteriorIds.has(wall.id);
-    const geometryChanged = Math.hypot(nextWall.start.x - wall.start.x, nextWall.start.y - wall.start.y) > 0.001
-      || Math.hypot(nextWall.end.x - wall.end.x, nextWall.end.y - wall.end.y) > 0.001;
-    const inside = (point: Point2) => point.x >= bounds.minX && point.x <= bounds.maxX && point.y >= bounds.minY && point.y <= bounds.maxY;
-    if (!exterior && geometryChanged && (!inside(nextWall.start) || !inside(nextWall.end))) {
-      setArchitectureMessage('Walls must be at least 0.10 m long and remain inside the apartment.');
-      return false;
+    if (outcome.error) {
+      if (!outcome.result.ok) return toolFailure(outcome.result.code, outcome.result.message, { currentRevision: current?.revision });
+      return toolFailureFromMessage(outcome.error, current?.revision);
     }
-    const movedCorners = exterior && geometryChanged ? [
-      ...(samePoint(wall.start, nextWall.start) ? [] : [{ before: wall.start, after: nextWall.start }]),
-      ...(samePoint(wall.end, nextWall.end) ? [] : [{ before: wall.end, after: nextWall.end }]),
-    ] : [];
-    const nextWalls = currentWalls.map((candidate) => {
-      if (candidate.id === wall.id) return nextWall;
-      if (movedCorners.length === 0) return candidate;
-      const movedStart = movedCorners.find((corner) => samePoint(candidate.start, corner.before));
-      const movedEnd = movedCorners.find((corner) => samePoint(candidate.end, corner.before));
-      return { ...candidate, start: movedStart?.after ?? candidate.start, end: movedEnd?.after ?? candidate.end };
+    const result = outcome.result;
+    if (!result.ok) return toolFailure(result.code, result.message, { currentRevision: current?.revision });
+    return toolSuccess(result.message, {
+      projectId: current?.id,
+      revision: current?.revision,
+      data: { ...result.data, selection: result.selection, reconciliation: result.reconciliation },
     });
-    if (nextWalls.some((candidate) => wallLength(candidate) < 0.1)) {
-      setArchitectureMessage('Walls must be at least 0.10 m long.');
-      return false;
-    }
-    const duplicate = nextWalls.some((candidate, index) => nextWalls.slice(index + 1).some((other) => (
-      (samePoint(candidate.start, other.start) && samePoint(candidate.end, other.end))
-      || (samePoint(candidate.start, other.end) && samePoint(candidate.end, other.start))
-    )));
-    if (duplicate) {
-      setArchitectureMessage('A wall already exists at that location.');
-      return false;
-    }
-    const nextWallMap = new Map(nextWalls.map((candidate) => [candidate.id, candidate]));
-    const openingOutsideWall = current.scene.architecture.some((element) => element.kind === 'opening' && element.offset + element.width > wallLength(nextWallMap.get(element.wallId) ?? wall) + 0.001);
-    if (openingOutsideWall) {
-      setArchitectureMessage('This wall cannot be shorter than its doors or windows.');
-      return false;
-    }
-    if (exterior && geometryChanged) {
-      const perimeterError = exteriorLoopError(nextWalls.filter((candidate) => exteriorIds.has(candidate.id)));
-      if (perimeterError) {
-        setArchitectureMessage(perimeterError);
-        return false;
-      }
-    }
-    const architecture = current.scene.architecture.map((element) => element.kind === 'wall' ? nextWallMap.get(element.id) ?? element : element);
-    const rebuilt = rebuildSceneRooms({ ...current.scene, architecture });
-    const rebuiltRooms = rebuilt.architecture.filter((element): element is RoomElement => element.kind === 'room');
-    const outsideFurniture = rebuilt.layouts.flatMap((sceneLayout) => sceneLayout.elements).filter((element) => !rebuiltRooms.some((room) => pointInRoom({ x: element.transform.position.x, y: element.transform.position.z }, room))).length;
-    const successMessage = exterior && geometryChanged ? `Exterior shape updated${outsideFurniture ? ` · ${outsideFurniture} furniture item${outsideFurniture === 1 ? '' : 's'} outside the footprint` : ''}.` : 'Wall updated.';
-    const error = await saveScene(rebuilt, successMessage);
-    if (!error) setArchitecturePreview(null);
-    return !error;
-  };
-
-  const addExteriorCorner = async (wallId: string) => {
-    const current = projectRef.current;
-    if (!current) return;
-    const bounds = getArchitectureBounds(current.scene.architecture);
-    const wall = current.scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === wallId);
-    if (!wall || !isExteriorWall(wall, bounds, current.scene.architecture)) return;
-    const splitOffset = wallLength(wall) / 2;
-    if (splitOffset < 0.1) {
-      setArchitectureMessage('This exterior edge is too short to add a corner.');
-      return;
-    }
-    const crossingOpening = current.scene.architecture.some((element) => element.kind === 'opening' && element.wallId === wallId && element.offset < splitOffset && element.offset + element.width > splitOffset);
-    if (crossingOpening) {
-      setArchitectureMessage('Move the opening away from the middle of this wall before adding a corner.');
-      return;
-    }
-    const ratio = splitOffset / wallLength(wall);
-    const corner = { x: wall.start.x + (wall.end.x - wall.start.x) * ratio, y: wall.start.y + (wall.end.y - wall.start.y) * ratio };
-    const addedWall: WallElement = { ...wall, id: `wall-${crypto.randomUUID()}`, start: corner };
-    const architecture = current.scene.architecture.flatMap((element): ArchitecturalElement[] => {
-      if (element.kind === 'wall' && element.id === wallId) return [{ ...element, end: corner }, addedWall];
-      if (element.kind === 'opening' && element.wallId === wallId && element.offset >= splitOffset) return [{ ...element, wallId: addedWall.id, offset: element.offset - splitOffset }];
-      return [element];
-    });
-    const error = await saveScene(rebuildSceneRooms({ ...current.scene, architecture }), 'Exterior corner added · drag the new corner to reshape the footprint.');
-    if (!error) setSelectedWallId(wallId);
-  };
-
-  const removeExteriorCorner = async (wallId: string, endpoint: WallEndpoint) => {
-    const current = projectRef.current;
-    if (!current) return;
-    const bounds = getArchitectureBounds(current.scene.architecture);
-    const walls = current.scene.architecture.filter((element): element is WallElement => element.kind === 'wall');
-    const exteriorWalls = walls.filter((wall) => isExteriorWall(wall, bounds, current.scene.architecture));
-    const wall = exteriorWalls.find((candidate) => candidate.id === wallId);
-    if (!wall || exteriorWalls.length <= 3) {
-      setArchitectureMessage('The exterior perimeter needs at least three corners.');
-      return;
-    }
-    const corner = endpoint === 'start' ? wall.start : wall.end;
-    const neighbor = exteriorWalls.find((candidate) => candidate.id !== wall.id && (samePoint(candidate.start, corner) || samePoint(candidate.end, corner)));
-    if (!neighbor) {
-      setArchitectureMessage('This exterior corner is not connected correctly.');
-      return;
-    }
-    if (current.scene.architecture.some((element) => element.kind === 'opening' && (element.wallId === wall.id || element.wallId === neighbor.id))) {
-      setArchitectureMessage('Remove or relocate openings on these edges before removing the corner.');
-      return;
-    }
-    const neighborFarPoint = samePoint(neighbor.start, corner) ? neighbor.end : neighbor.start;
-    const wallFarPoint = endpoint === 'start' ? wall.end : wall.start;
-    const mergedWall = { ...wall, start: endpoint === 'start' ? neighborFarPoint : wallFarPoint, end: endpoint === 'start' ? wallFarPoint : neighborFarPoint };
-    const nextExterior = exteriorWalls.filter((candidate) => candidate.id !== neighbor.id && candidate.id !== wall.id).concat(mergedWall);
-    const perimeterError = exteriorLoopError(nextExterior);
-    if (perimeterError) {
-      setArchitectureMessage(perimeterError);
-      return;
-    }
-    const architecture = current.scene.architecture.filter((element) => element.id !== neighbor.id).map((element) => element.id === wall.id ? mergedWall : element);
-    await saveScene(rebuildSceneRooms({ ...current.scene, architecture }), 'Exterior corner removed.');
-  };
-
-  const addDoor = async (wallId: string) => {
-    const current = projectRef.current;
-    if (!current) return;
-    const wall = current.scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === wallId);
-    if (!wall) return;
-    const placement = findOpeningPlacement(current.scene.architecture, wall, 0.91);
-    if (!placement) {
-      setArchitectureMessage('This wall does not have enough clear space for a 0.91 m door.');
-      return;
-    }
-    const door: OpeningElement = { id: `door-${crypto.randomUUID()}`, kind: 'opening', openingType: 'door', wallId, offset: placement.offset, width: placement.width, height: Math.min(2.03, wall.height), sillHeight: 0, swing: 'left', swingSide: 'in' };
-    const error = await saveScene({ ...current.scene, architecture: [...current.scene.architecture, door] }, 'Door added · drag it along the wall or enter an exact position.');
-    if (!error) setSelectedOpeningId(door.id);
-  };
-
-  const addWindow = async (wallId: string) => {
-    const current = projectRef.current;
-    if (!current) return;
-    const wall = current.scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === wallId);
-    if (!wall) return;
-    const placement = findOpeningPlacement(current.scene.architecture, wall, 1.2, 0.5);
-    if (!placement) {
-      setArchitectureMessage('This wall does not have at least 0.50 m of clear space for a window.');
-      return;
-    }
-    const sillHeight = Math.min(0.9, Math.max(0, wall.height - 0.3));
-    const height = Math.min(1.2, wall.height - sillHeight);
-    const windowOpening: OpeningElement = { id: `window-${crypto.randomUUID()}`, kind: 'opening', openingType: 'window', wallId, offset: placement.offset, width: placement.width, height, sillHeight };
-    const error = await saveScene({ ...current.scene, architecture: [...current.scene.architecture, windowOpening] }, 'Window added · drag it along the wall or enter exact dimensions.');
-    if (!error) setSelectedOpeningId(windowOpening.id);
-  };
-
-  const updateOpening = async (openingId: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'sillHeight' | 'swing' | 'swingSide'>>) => {
-    const current = projectRef.current;
-    if (!current) return false;
-    const opening = current.scene.architecture.find((element): element is OpeningElement => element.kind === 'opening' && element.id === openingId);
-    if (!opening) return false;
-    const nextOpening = { ...opening, ...patch };
-    const wall = current.scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === opening.wallId);
-    if (!wall) return false;
-    const label = opening.openingType === 'window' ? 'Window' : 'Door';
-    if (nextOpening.width < 0.5 || nextOpening.width > 3 || nextOpening.offset < 0.1 || nextOpening.offset + nextOpening.width > wallLength(wall) - 0.1) {
-      setArchitectureMessage(`${label}s must be 0.50–3.00 m wide and remain at least 0.10 m from wall corners.`);
-      return false;
-    }
-    const minimumHeight = opening.openingType === 'window' ? 0.3 : 1.8;
-    if (nextOpening.height < minimumHeight || nextOpening.sillHeight < 0 || nextOpening.sillHeight + nextOpening.height > wall.height) {
-      setArchitectureMessage(`${label} height and sill height must fit within the selected wall.`);
-      return false;
-    }
-    const overlaps = current.scene.architecture.some((element) => element.kind === 'opening' && element.id !== openingId && element.wallId === opening.wallId && nextOpening.offset < element.offset + element.width + 0.1 && nextOpening.offset + nextOpening.width + 0.1 > element.offset);
-    if (overlaps) {
-      setArchitectureMessage('Doors and windows need at least 0.10 m of separation.');
-      return false;
-    }
-    const architecture = current.scene.architecture.map((element) => element.id === openingId ? nextOpening : element);
-    const error = await saveScene({ ...current.scene, architecture }, `${label} updated.`);
-    return !error;
-  };
-
-  const deleteOpening = async (openingId: string) => {
-    const current = projectRef.current;
-    if (!current) return;
-    const opening = current.scene.architecture.find((element): element is OpeningElement => element.kind === 'opening' && element.id === openingId);
-    const label = opening?.openingType === 'window' ? 'Window' : 'Door';
-    const error = await saveScene({ ...current.scene, architecture: current.scene.architecture.filter((element) => element.id !== openingId) }, `${label} removed.`);
-    if (!error) setSelectedOpeningId('');
-  };
-
-  const deleteWall = async (wallId: string) => {
-    await moveSaveQueue.current;
-    const current = projectRef.current;
-    if (!current) return;
-    const bounds = getArchitectureBounds(current.scene.architecture);
-    const wall = current.scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === wallId);
-    if (!wall) return;
-    if (isExteriorWall(wall, bounds, current.scene.architecture)) {
-      setArchitectureMessage('Exterior walls are removed by removing one of their corners.');
-      return;
-    }
-    if (current.scene.architecture.some((element) => element.kind === 'opening' && element.wallId === wallId)) {
-      setArchitectureMessage('Remove this wall’s doors or windows before deleting it.');
-      return;
-    }
-    const error = await saveScene(rebuildSceneRooms({ ...current.scene, architecture: current.scene.architecture.filter((element) => element.id !== wallId) }), 'Wall removed.');
-    if (!error) setSelectedWallId('');
-  };
-
-  const renameRoom = async (roomId: string, name: string) => {
-    await moveSaveQueue.current;
-    const current = projectRef.current;
-    if (!current || !name.trim()) return;
-    const architecture = current.scene.architecture.map((element) => element.kind === 'room' && element.id === roomId ? { ...element, name: name.trim() } : element);
-    await saveScene({ ...current.scene, architecture }, `Room renamed to ${name.trim()}.`);
   };
 
   const renameProject = async (name: string, signal?: AbortSignal): Promise<string | null> => {
@@ -639,8 +386,8 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     void persistObjectUpdate(objectId, transform, layoutOverride).catch(() => undefined);
   };
 
-  const applyHistoryScene = async (scene: SceneDocument, message: string) => {
-    const error = await saveScene(structuredClone(scene), message, { recordHistory: false });
+  const applyHistoryScene = async (scene: SceneDocument, message: string, signal?: AbortSignal) => {
+    const error = await saveScene(structuredClone(scene), message, { recordHistory: false, signal });
     if (error) return false;
     setSelected('');
     setSelectedWallId('');
@@ -651,34 +398,52 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     return true;
   };
 
-  const undo = async () => {
-    if (historyBusy) return;
+  const undo = async (signal?: AbortSignal) => {
+    if (historyBusy) return false;
     setHistoryBusy(true);
     await moveSaveQueue.current;
     const edit = undoStack.current.at(-1);
-    if (edit && await applyHistoryScene(edit.before, 'Undid last change.')) {
+    if (edit && await applyHistoryScene(edit.before, 'Undid last change.', signal)) {
       undoStack.current.pop();
       redoStack.current.push(edit);
       updateHistoryState();
+      setHistoryBusy(false);
+      return true;
     }
     setHistoryBusy(false);
+    return false;
   };
 
-  const redo = async () => {
-    if (historyBusy) return;
+  const redo = async (signal?: AbortSignal) => {
+    if (historyBusy) return false;
     setHistoryBusy(true);
     await moveSaveQueue.current;
     const edit = redoStack.current.at(-1);
-    if (edit && await applyHistoryScene(edit.after, 'Redid last change.')) {
+    if (edit && await applyHistoryScene(edit.after, 'Redid last change.', signal)) {
       redoStack.current.pop();
       undoStack.current.push(edit);
       updateHistoryState();
+      setHistoryBusy(false);
+      return true;
     }
     setHistoryBusy(false);
+    return false;
+  };
+
+  const prepareResetProject = () => {
+    const current = projectRef.current;
+    if (!current || resetting) return;
+    setPendingReset({ projectId: current.id, projectName: current.name, revision: current.revision });
   };
 
   const resetEverything = async () => {
-    if (resetting || !window.confirm('Reset the entire apartment? This removes all furniture, doors, rooms, and custom changes, and cannot be undone.')) return;
+    const confirmation = pendingReset;
+    const current = projectRef.current;
+    if (resetting || !confirmation || !current || confirmation.projectId !== current.id || confirmation.revision !== current.revision) {
+      setPendingReset(null);
+      return;
+    }
+    setPendingReset(null);
     setResetting(true);
     await moveSaveQueue.current;
     const error = await saveScene(structuredClone(blankApartmentScene), 'Everything reset · start again from the blank apartment.', { recordHistory: false });
@@ -842,9 +607,26 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         hour,
         camera,
         measurements: showMeasurements,
+        zoom,
+        selection: selectedOpeningId
+          ? { kind: 'opening' as const, entityId: selectedOpeningId }
+          : selectedRoomId
+            ? { kind: 'room' as const, entityId: selectedRoomId }
+            : selectedWallId
+              ? { kind: 'wall' as const, entityId: selectedWallId }
+              : sceneObjects[layout].some((item) => item.id === selected)
+                ? { kind: 'furniture' as const, entityId: selected }
+                : null,
+        canUndo: !historyBusy && historyState.undo > 0,
+        canRedo: !historyBusy && historyState.redo > 0,
+        architecturePreviewActive: architecturePreview !== null,
+        confirmationActive: pendingReset !== null,
+        availableTools: [...CURRENT_EDITOR_TOOL_NAMES],
       };
     },
-    renameProject: async (name, signal) => {
+    renameProject: async (requestedProjectId, name, signal) => {
+      const before = projectRef.current;
+      if (requestedProjectId && before?.id !== requestedProjectId) return toolFailure('NOT_FOUND', 'That apartment is not the active editor project.', { currentRevision: before?.revision });
       const error = await renameProject(name, signal);
       const current = projectRef.current;
       if (error) return toolFailureFromMessage(error, current?.revision);
@@ -916,6 +698,15 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       if (error) return toolFailureFromMessage(error, current?.revision);
       return toolSuccess(`Apartment resized to ${width.toFixed(2)} × ${depth.toFixed(2)} × ${height.toFixed(2)} meters.`, { projectId: current?.id, revision: current?.revision });
     },
+    renameRoom: (roomId, name, signal) => architectureToolResponse(renameRoom(roomId, name, signal)),
+    addWall: (input: AddWallToolInput, signal) => architectureToolResponse(persistArchitectureCommand(currentScene() ? addWallCommand(currentScene() as SceneDocument, input.start, input.end, { thickness: input.thickness, height: input.height }) : { ok: false, code: 'NOT_FOUND', message: 'The project is still loading.' }, signal)),
+    updateWall: (input: UpdateWallToolInput, signal) => architectureToolResponse(updateWall(input.wallId, { start: input.start, end: input.end, length: input.length, thickness: input.thickness, height: input.height }, signal)),
+    removeWall: (wallId, signal) => architectureToolResponse(deleteWall(wallId, signal)),
+    addExteriorCorner: (wallId, offsetMeters, signal) => architectureToolResponse(addExteriorCorner(wallId, offsetMeters, signal)),
+    removeExteriorCorner: (wallId, endpoint, signal) => architectureToolResponse(removeExteriorCorner(wallId, endpoint, signal)),
+    addOpening: (input: AddOpeningToolInput, signal) => architectureToolResponse(addOpening(input, signal)),
+    updateOpening: (input: UpdateOpeningToolInput, signal) => architectureToolResponse(updateOpening(input.openingId, { offset: input.offset, width: input.width, height: input.height, sillHeight: input.sillHeight, swing: input.swing, swingSide: input.swingSide }, signal)),
+    removeOpening: (openingId, signal) => architectureToolResponse(deleteOpening(openingId, signal)),
     setEditorView: (nextView, nextEditMode) => {
       setArchitecturePreview(null);
       if (nextEditMode) setEditMode(nextEditMode);
@@ -952,6 +743,46 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       }
       return toolSuccess(`Selected ${kind} ${entityId.slice(0, 128)} for inspection. This selection was not saved.`, { projectId: current.id, revision: current.revision, data: { saved: false, kind, entityId } });
     },
+    undo: async (signal) => {
+      const changed = await undo(signal);
+      const current = projectRef.current;
+      if (!changed) return toolFailure('NO_HISTORY', 'There is no available change to undo.', { currentRevision: current?.revision });
+      return toolSuccess('Undid the latest editor change.', { projectId: current?.id, revision: current?.revision, data: { canUndo: undoStack.current.length > 0, canRedo: redoStack.current.length > 0 } });
+    },
+    redo: async (signal) => {
+      const changed = await redo(signal);
+      const current = projectRef.current;
+      if (!changed) return toolFailure('NO_HISTORY', 'There is no available change to redo.', { currentRevision: current?.revision });
+      return toolSuccess('Redid the latest editor change.', { projectId: current?.id, revision: current?.revision, data: { canUndo: undoStack.current.length > 0, canRedo: redoStack.current.length > 0 } });
+    },
+    setPlanZoom: (nextZoom) => {
+      setArchitecturePreview(null);
+      setCompare(false);
+      setView('plan');
+      setZoom(nextZoom);
+      return toolSuccess(`Plan zoom is now ${nextZoom}%. This view change was not saved.`, { projectId: projectRef.current?.id, revision: projectRef.current?.revision, data: { saved: false, zoom: nextZoom } });
+    },
+    reset3dCamera: () => {
+      setArchitecturePreview(null);
+      selectView('three');
+      setCamera(0);
+      setCameraReset((value) => value + 1);
+      return toolSuccess('The 3D camera perspective was reset. This view change was not saved.', { projectId: projectRef.current?.id, revision: projectRef.current?.revision, data: { saved: false, camera: 0 } });
+    },
+    goToDashboard: () => {
+      setPendingReset(null);
+      router.push('/');
+      return toolSuccess('Opening the Dwellwise apartment dashboard.', { projectId: projectRef.current?.id, revision: projectRef.current?.revision, data: { saved: false } });
+    },
+    prepareResetProject: () => {
+      const current = projectRef.current;
+      if (!current) return toolFailure('NOT_READY', 'The project is still loading.', { retryable: true });
+      prepareResetProject();
+      return toolFailure('CONFIRMATION_REQUIRED', 'Review the visible reset confirmation in Dwellwise. Only a human can complete this action.', {
+        currentRevision: current.revision,
+        data: { saved: false, targetType: 'project', targetId: current.id, targetRevision: current.revision },
+      });
+    },
   }), Boolean(project));
   /* eslint-enable react-hooks/refs */
 
@@ -972,7 +803,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
 
   return (
     <main className="app-shell">
-      <Header key={project.id} projectName={project.name} onRename={renameProject} resetting={resetting} onReset={resetEverything} />
+      <Header key={project.id} projectName={project.name} onRename={renameProject} resetting={resetting} onReset={prepareResetProject} />
       <ModeBar view={view} compare={compare} editMode={editMode} zoom={zoom} canUndo={!historyBusy && historyState.undo > 0} canRedo={!historyBusy && historyState.redo > 0} onUndo={undo} onRedo={redo} onZoom={setZoom} onView={selectView} onEditMode={(mode) => { setArchitecturePreview(null); setEditMode(mode); }} />
       <div className={`workspace-grid ${compare ? 'is-comparing' : ''} ${view === 'plan' && !compare ? 'plan-builder-grid' : ''}`}>
         {compare ? (
@@ -991,6 +822,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         {view === 'plan' && !compare && editMode === 'furnish' && <AddObjectPanel rooms={rooms} loading={projectRevision === null} onAdd={addObject} selectedObject={sceneObjects[layout].find((item) => item.id === selected)} onResize={resizeObject} onCommitResize={saveObjectDimensions} />}
         {view === 'plan' && !compare && editMode === 'architecture' && <ArchitecturePropertiesPanel key={`${selectedOpening?.id ?? selectedWall?.id ?? 'apartment'}-${projectRevision}`} architecture={architecture} selectedWall={selectedWall} selectedOpening={selectedOpening} drawingWall={drawingWall} loading={projectRevision === null} onDrawingWall={(drawing) => { setArchitecturePreview(null); setDrawingWall(drawing); if (drawing) { setSelectedWallId(''); setSelectedOpeningId(''); setSelectedRoomId(''); } }} onPreviewApartment={previewApartment} onPreviewWall={previewWall} onPreviewOpening={previewOpening} onResizeApartment={resizeApartment} onUpdateWall={updateWall} onDeleteWall={deleteWall} onAddExteriorCorner={addExteriorCorner} onRemoveExteriorCorner={removeExteriorCorner} onAddDoor={addDoor} onAddWindow={addWindow} onUpdateOpening={updateOpening} onDeleteOpening={deleteOpening} onCloseOpening={() => { setArchitecturePreview(null); setSelectedOpeningId(''); }} />}
       </div>
+      {pendingReset && <DestructiveConfirmationDialog kind="reset" projectName={pendingReset.projectName} busy={resetting} onCancel={() => setPendingReset(null)} onConfirm={() => void resetEverything()} />}
     </main>
   );
 }
@@ -1068,7 +900,7 @@ function ModeBar({ view, compare, editMode, zoom, canUndo, canRedo, onUndo, onRe
   );
 }
 
-function ArchitecturePanel({ architecture, selectedWallId, selectedRoomId, onSelectWall, onSelectRoom, onRenameRoom }: { architecture: ArchitecturalElement[]; selectedWallId: string; selectedRoomId: string; onSelectWall: (id: string) => void; onSelectRoom: (id: string) => void; onRenameRoom: (id: string, name: string) => Promise<void> }) {
+function ArchitecturePanel({ architecture, selectedWallId, selectedRoomId, onSelectWall, onSelectRoom, onRenameRoom }: { architecture: ArchitecturalElement[]; selectedWallId: string; selectedRoomId: string; onSelectWall: (id: string) => void; onSelectRoom: (id: string) => void; onRenameRoom: (id: string, name: string) => Promise<unknown> }) {
   const bounds = getArchitectureBounds(architecture);
   const rooms = architecture.filter((element): element is RoomElement => element.kind === 'room');
   const walls = architecture.filter((element): element is WallElement => element.kind === 'wall');
@@ -1100,7 +932,7 @@ function ArchitecturePanel({ architecture, selectedWallId, selectedRoomId, onSel
   );
 }
 
-function RoomNameEditor({ room, edgeLengths, onRenameRoom }: { room: RoomElement; edgeLengths: number[]; onRenameRoom: (id: string, name: string) => Promise<void> }) {
+function RoomNameEditor({ room, edgeLengths, onRenameRoom }: { room: RoomElement; edgeLengths: number[]; onRenameRoom: (id: string, name: string) => Promise<unknown> }) {
   const [name, setName] = useState(room.name);
   const [saving, setSaving] = useState(false);
   const submit = async (event: FormEvent) => {
@@ -1113,7 +945,7 @@ function RoomNameEditor({ room, edgeLengths, onRenameRoom }: { room: RoomElement
   return <form className="room-name-editor" onSubmit={submit}><label>ROOM NAME<input value={name} onChange={(event) => setName(event.target.value)} maxLength={40} /></label>{!isRectangularRoom(room) && <div className="room-edge-lengths"><span>EDGE LENGTHS</span><p>{edgeLengths.map((length, index) => <b key={index}>{index + 1} · {length.toFixed(2)} m</b>)}</p></div>}<button disabled={saving || !name.trim() || name.trim() === room.name}>{saving ? 'Saving…' : 'Save name'}</button></form>;
 }
 
-function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpening, drawingWall, loading, onDrawingWall, onPreviewApartment, onPreviewWall, onPreviewOpening, onResizeApartment, onUpdateWall, onDeleteWall, onAddExteriorCorner, onRemoveExteriorCorner, onAddDoor, onAddWindow, onUpdateOpening, onDeleteOpening, onCloseOpening }: { architecture: ArchitecturalElement[]; selectedWall?: WallElement; selectedOpening?: OpeningElement; drawingWall: boolean; loading: boolean; onDrawingWall: (drawing: boolean) => void; onPreviewApartment: (width: number, depth: number, height: number) => void; onPreviewWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => void; onPreviewOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'sillHeight' | 'swing' | 'swingSide'>>) => void; onResizeApartment: (width: number, depth: number, height: number) => Promise<string | null>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => Promise<boolean>; onDeleteWall: (id: string) => Promise<void>; onAddExteriorCorner: (id: string) => Promise<void>; onRemoveExteriorCorner: (id: string, endpoint: WallEndpoint) => Promise<void>; onAddDoor: (wallId: string) => Promise<void>; onAddWindow: (wallId: string) => Promise<void>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'sillHeight' | 'swing' | 'swingSide'>>) => Promise<boolean>; onDeleteOpening: (id: string) => Promise<void>; onCloseOpening: () => void }) {
+function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpening, drawingWall, loading, onDrawingWall, onPreviewApartment, onPreviewWall, onPreviewOpening, onResizeApartment, onUpdateWall, onDeleteWall, onAddExteriorCorner, onRemoveExteriorCorner, onAddDoor, onAddWindow, onUpdateOpening, onDeleteOpening, onCloseOpening }: { architecture: ArchitecturalElement[]; selectedWall?: WallElement; selectedOpening?: OpeningElement; drawingWall: boolean; loading: boolean; onDrawingWall: (drawing: boolean) => void; onPreviewApartment: (width: number, depth: number, height: number) => void; onPreviewWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => void; onPreviewOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'sillHeight' | 'swing' | 'swingSide'>>) => void; onResizeApartment: (width: number, depth: number, height: number) => Promise<string | null>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => Promise<unknown>; onDeleteWall: (id: string) => Promise<unknown>; onAddExteriorCorner: (id: string) => Promise<unknown>; onRemoveExteriorCorner: (id: string, endpoint: WallEndpoint) => Promise<unknown>; onAddDoor: (wallId: string) => Promise<unknown>; onAddWindow: (wallId: string) => Promise<unknown>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'sillHeight' | 'swing' | 'swingSide'>>) => Promise<unknown>; onDeleteOpening: (id: string) => Promise<unknown>; onCloseOpening: () => void }) {
   const bounds = getArchitectureBounds(architecture);
   const walls = architecture.filter((element): element is WallElement => element.kind === 'wall');
   const [width, setWidth] = useState(bounds.width);
@@ -1315,7 +1147,7 @@ function FurnitureGlyph({ category, name, compact = false }: { category: string;
   );
 }
 
-function PlanView({ editMode, architecture, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, selected, onSelect, onSelectWall, onSelectOpening, onSelectRoom, layout, zoom, objects, collisionMessage, statusError, onMove, onCommitMove, onRotate, onDelete, onAddWall, onUpdateWall, onUpdateOpening }: { editMode: EditMode; architecture: ArchitecturalElement[]; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; selected: string; onSelect: (item: string) => void; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; layout: LayoutKey; zoom: number; objects: SceneObject[]; collisionMessage: string; statusError: boolean; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<void>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<boolean>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<boolean> }) {
+function PlanView({ editMode, architecture, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, selected, onSelect, onSelectWall, onSelectOpening, onSelectRoom, layout, zoom, objects, collisionMessage, statusError, onMove, onCommitMove, onRotate, onDelete, onAddWall, onUpdateWall, onUpdateOpening }: { editMode: EditMode; architecture: ArchitecturalElement[]; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; selected: string; onSelect: (item: string) => void; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; layout: LayoutKey; zoom: number; objects: SceneObject[]; collisionMessage: string; statusError: boolean; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<unknown>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<unknown>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<unknown> }) {
   const selectedObject = objects.find((item) => item.id === selected);
   const bounds = getArchitectureBounds(architecture);
   const frame = planFrameSize(bounds.width, bounds.depth);
@@ -1388,7 +1220,7 @@ type WallEndpoint = 'start' | 'end';
 type WallDragState = { wallId: string; mode: 'endpoint' | 'edge'; endpoint?: WallEndpoint; pointerId: number; pointerStart: Point2; originStart: Point2; originEnd: Point2; start: Point2; end: Point2 };
 type DoorDragState = { openingId: string; pointerId: number; offset: number };
 
-function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, onSelectWall, onSelectOpening, onSelectRoom, onAddWall, onUpdateWall, onUpdateOpening }: { architecture: ArchitecturalElement[]; bounds: ReturnType<typeof getArchitectureBounds>; editMode: EditMode; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<void>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<boolean>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<boolean> }) {
+function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, onSelectWall, onSelectOpening, onSelectRoom, onAddWall, onUpdateWall, onUpdateOpening }: { architecture: ArchitecturalElement[]; bounds: ReturnType<typeof getArchitectureBounds>; editMode: EditMode; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<unknown>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<unknown>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<unknown> }) {
   const [draftStart, setDraftStart] = useState<Point2 | null>(null);
   const [draftEnd, setDraftEnd] = useState<Point2 | null>(null);
   const [wallDrag, setWallDrag] = useState<WallDragState | null>(null);

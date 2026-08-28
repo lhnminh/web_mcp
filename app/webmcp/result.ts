@@ -8,13 +8,14 @@ export const toolSuccess = <T = Record<string, unknown>>(
 export const toolFailure = (
   code: WebMcpErrorCode,
   message: string,
-  options: { retryable?: boolean; currentRevision?: number } = {},
+  options: { retryable?: boolean; currentRevision?: number; data?: Record<string, unknown> } = {},
 ): WebMcpFailure => ({
   ok: false,
   code,
   message,
   retryable: options.retryable ?? false,
   ...(options.currentRevision === undefined ? {} : { currentRevision: options.currentRevision }),
+  ...(options.data === undefined ? {} : { data: options.data }),
 });
 
 export function toolFailureFromMessage(message: string, currentRevision?: number): WebMcpFailure {
@@ -30,4 +31,3 @@ export function toolFailureFromMessage(message: string, currentRevision?: number
 }
 
 export const cancelledResult = () => toolFailure('CANCELLED', 'The WebMCP action was cancelled.', { retryable: true });
-

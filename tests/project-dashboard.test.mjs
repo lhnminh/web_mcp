@@ -35,11 +35,13 @@ function dashboard(fetch) {
           }];
         },
         useEffect(effect) { if (!mounted) effect(); },
+        useRef(initial) { return { current: initial }; },
       };
       if (name === 'next/navigation') return { useRouter: () => ({ push() {} }) };
       if (name === 'next/link') return { default: 'a' };
       if (name === '@/app/hooks/use-webmcp-tools') return { useWebMcpTools() {} };
       if (name === '@/app/webmcp/dashboard-tools') return { buildDashboardTools: () => [] };
+      if (name === '@/app/DestructiveConfirmationDialog') return { default: () => null };
       throw new Error(`Unexpected import: ${name}`);
     },
   });
