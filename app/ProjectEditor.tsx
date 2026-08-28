@@ -8,6 +8,9 @@ import { blankApartmentScene } from '@/lib/domain/demo-scene';
 import { getWindowExposureSummary } from '@/lib/domain/sunlight';
 import ApartmentScene from './ApartmentScene';
 import { getFurnitureKind } from '@/lib/domain/furniture';
+import { useWebMcpTools } from '@/app/hooks/use-webmcp-tools';
+import { buildEditorTools, type AddFurnitureToolInput, type UpdateFurnitureToolInput } from '@/app/webmcp/editor-tools';
+import { toolFailure, toolFailureFromMessage, toolSuccess } from '@/app/webmcp/result';
 
 type View = 'plan' | 'three' | 'evaluation';
 type LayoutKey = 'A' | 'B';
@@ -216,7 +219,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     return operation;
   };
 
-  const saveScene = async (scene: SceneDocument, successMessage: string, options: { recordHistory?: boolean } = {}) => {
+  const saveScene = async (scene: SceneDocument, successMessage: string, options: { recordHistory?: boolean; signal?: AbortSignal } = {}) => {
     return enqueueMutation(async () => {
       const current = projectRef.current;
       const expectedRevision = projectRevisionRef.current;
@@ -227,6 +230,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ name: current.name, scene, expectedRevision }),
+          signal: options.signal,
         });
         const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
         if (!response.ok) {
@@ -240,7 +244,8 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         if (options.recordHistory !== false) recordSceneEdit(current.scene, result.scene);
         setArchitectureMessage(successMessage);
         return null;
-      } catch {
+      } catch (error) {
+        if (options.signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error;
         const message = 'The architecture could not be saved. Check your connection and try again.';
         setArchitectureMessage(message);
         return message;
@@ -248,7 +253,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     });
   };
 
-  const resizeApartment = async (width: number, depth: number, height: number) => {
+  const resizeApartment = async (width: number, depth: number, height: number, signal?: AbortSignal) => {
     await moveSaveQueue.current;
     const current = projectRef.current;
     if (!current) return 'The project is still loading.';
@@ -257,7 +262,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       setArchitectureMessage(message);
       return message;
     }
-    const error = await saveScene(rebuildSceneRooms(resizeApartmentScene(current.scene, width, depth, height)), `Apartment resized to ${width.toFixed(2)} × ${depth.toFixed(2)} × ${height.toFixed(2)} m.`);
+    const error = await saveScene(rebuildSceneRooms(resizeApartmentScene(current.scene, width, depth, height)), `Apartment resized to ${width.toFixed(2)} × ${depth.toFixed(2)} × ${height.toFixed(2)} m.`, { signal });
     if (!error) setArchitecturePreview(null);
     return error;
   };
@@ -510,7 +515,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     await saveScene({ ...current.scene, architecture }, `Room renamed to ${name.trim()}.`);
   };
 
-  const renameProject = async (name: string): Promise<string | null> => {
+  const renameProject = async (name: string, signal?: AbortSignal): Promise<string | null> => {
     return enqueueMutation(async () => {
       const current = projectRef.current;
       const expectedRevision = projectRevisionRef.current;
@@ -523,6 +528,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ name: trimmedName, expectedRevision }),
+          signal,
         });
         const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
         if (!response.ok) {
@@ -531,7 +537,8 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         }
         syncProject(result);
         return null;
-      } catch {
+      } catch (error) {
+        if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error;
         return 'The apartment could not be renamed. Check your connection and try again.';
       }
     });
@@ -546,29 +553,37 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     setView(next);
   };
 
-  const addObject = async (input: AddObjectInput): Promise<string | null> => {
+  const addObjectCommand = async (input: AddObjectInput, signal?: AbortSignal): Promise<{ error: string | null; objectId?: string }> => {
     return enqueueMutation(async () => {
       const current = projectRef.current;
       const expectedRevision = projectRevisionRef.current;
-      if (!current || expectedRevision === null) return 'The project is still loading. Try again in a moment.';
-      const response = await fetch(`/api/projects/${encodeURIComponent(current.id)}/objects`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...input, layoutId: `layout-${layout.toLowerCase()}`, expectedRevision }),
-      });
-      const result = await response.json() as { error?: string; current?: ApiProject; project?: ApiProject; objectId?: string };
-      if (!response.ok) {
-        if (result.current) syncProject(result.current);
-        return result.error ?? 'The object could not be added.';
+      if (!current || expectedRevision === null) return { error: 'The project is still loading. Try again in a moment.' };
+      try {
+        const response = await fetch(`/api/projects/${encodeURIComponent(current.id)}/objects`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, layoutId: `layout-${layout.toLowerCase()}`, expectedRevision }),
+          signal,
+        });
+        const result = await response.json() as { error?: string; current?: ApiProject; project?: ApiProject; objectId?: string };
+        if (!response.ok) {
+          if (result.current) syncProject(result.current);
+          return { error: result.error ?? 'The object could not be added.' };
+        }
+        if (result.project) {
+          syncProject(result.project);
+          recordSceneEdit(current.scene, result.project.scene);
+        }
+        if (result.objectId) setSelected(result.objectId);
+        return { error: null, objectId: result.objectId };
+      } catch (error) {
+        if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error;
+        return { error: 'The object could not be added. Check your connection and try again.' };
       }
-      if (result.project) {
-        syncProject(result.project);
-        recordSceneEdit(current.scene, result.project.scene);
-      }
-      if (result.objectId) setSelected(result.objectId);
-      return null;
     });
   };
+
+  const addObject = async (input: AddObjectInput): Promise<string | null> => (await addObjectCommand(input)).error;
 
   const moveObject = (objectId: string, placement: { position: { x: number; z: number }; roomId: RoomId }) => {
     const objects = sceneObjects[layout];
@@ -590,28 +605,43 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     return true;
   };
 
-  const saveObjectTransform = (objectId: string, transform: { position?: { x: number; z: number }; rotation?: { y: number }; dimensions?: SceneObject['dimensions']; roomId?: RoomId }, layoutOverride?: LayoutKey) => {
+  const persistObjectUpdate = (objectId: string, transform: { position?: { x: number; z: number }; rotation?: { y: number }; dimensions?: SceneObject['dimensions']; roomId?: RoomId }, layoutOverride?: LayoutKey, signal?: AbortSignal): Promise<string | null> => {
     const layoutAtMove = layoutOverride ?? layout;
-    void enqueueMutation(async () => {
+    return enqueueMutation(async () => {
       const current = projectRef.current;
       const expectedRevision = projectRevisionRef.current;
-      if (!current || expectedRevision === null) return;
-      const response = await fetch(`/api/projects/${encodeURIComponent(current.id)}/objects/${encodeURIComponent(objectId)}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ layoutId: `layout-${layoutAtMove.toLowerCase()}`, expectedRevision, transform: { position: transform.position, rotation: transform.rotation }, dimensions: transform.dimensions, roomId: transform.roomId }),
-      });
-      const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
-      if (response.ok) {
-        syncProject(result);
-        recordSceneEdit(current.scene, result.scene);
-      } else if (result.current) {
-        syncProject(result.current);
-      } else {
+      if (!current || expectedRevision === null) return 'The project is still loading. Try again in a moment.';
+      try {
+        const response = await fetch(`/api/projects/${encodeURIComponent(current.id)}/objects/${encodeURIComponent(objectId)}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ layoutId: `layout-${layoutAtMove.toLowerCase()}`, expectedRevision, transform: { position: transform.position, rotation: transform.rotation }, dimensions: transform.dimensions, roomId: transform.roomId }),
+          signal,
+        });
+        const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
+        if (response.ok) {
+          syncProject(result);
+          recordSceneEdit(current.scene, result.scene);
+          setCollisionMessage('');
+          return null;
+        }
+        if (result.current) syncProject(result.current);
+        else syncProject(current);
+        const message = result.error ?? 'The object change could not be saved.';
+        setCollisionMessage(message);
+        return message;
+      } catch (error) {
+        if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error;
+        const message = 'The object change could not be saved. Check your connection and try again.';
         syncProject(current);
-        setCollisionMessage(result.error ?? 'The object change could not be saved.');
+        setCollisionMessage(message);
+        return message;
       }
-    }).catch(() => undefined);
+    });
+  };
+
+  const saveObjectTransform = (objectId: string, transform: { position?: { x: number; z: number }; rotation?: { y: number }; dimensions?: SceneObject['dimensions']; roomId?: RoomId }, layoutOverride?: LayoutKey) => {
+    void persistObjectUpdate(objectId, transform, layoutOverride).catch(() => undefined);
   };
 
   const applyHistoryScene = async (scene: SceneDocument, message: string) => {
@@ -703,26 +733,40 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     saveObjectTransform(objectId, { position, rotation });
   };
 
-  const removeObject = async (objectId: string) => {
-    await enqueueMutation(async () => {
+  const removeObjectCommand = async (objectId: string, signal?: AbortSignal): Promise<string | null> => {
+    return enqueueMutation(async () => {
       const current = projectRef.current;
       const expectedRevision = projectRevisionRef.current;
-      if (!current || expectedRevision === null) return;
-      const response = await fetch(`/api/projects/${encodeURIComponent(current.id)}/objects/${encodeURIComponent(objectId)}`, {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ layoutId: `layout-${layout.toLowerCase()}`, expectedRevision }),
-      });
-      const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
-      if (response.ok) {
-        syncProject(result);
-        recordSceneEdit(current.scene, result.scene);
-        setSelected('');
-        setCollisionMessage('');
-      } else if (result.current) syncProject(result.current);
-      else setCollisionMessage(result.error ?? 'The object could not be removed.');
+      if (!current || expectedRevision === null) return 'The project is still loading. Try again in a moment.';
+      try {
+        const response = await fetch(`/api/projects/${encodeURIComponent(current.id)}/objects/${encodeURIComponent(objectId)}`, {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ layoutId: `layout-${layout.toLowerCase()}`, expectedRevision }),
+          signal,
+        });
+        const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
+        if (response.ok) {
+          syncProject(result);
+          recordSceneEdit(current.scene, result.scene);
+          setSelected('');
+          setCollisionMessage('');
+          return null;
+        }
+        if (result.current) syncProject(result.current);
+        const message = result.error ?? 'The object could not be removed.';
+        setCollisionMessage(message);
+        return message;
+      } catch (error) {
+        if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error;
+        const message = 'The object could not be removed. Check your connection and try again.';
+        setCollisionMessage(message);
+        return message;
+      }
     });
   };
+
+  const removeObject = async (objectId: string) => { await removeObjectCommand(objectId); };
 
   const resizeObject = (objectId: string, dimensions: SceneObject['dimensions']) => {
     const objects = sceneObjects[layout];
@@ -788,6 +832,134 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   const selectWall = (id: string) => { setArchitecturePreview(null); setSelectedWallId(id); setSelectedOpeningId(''); setSelectedRoomId(''); setDrawingWall(false); };
   const selectOpening = (id: string, wallId: string) => { setArchitecturePreview(null); setSelectedOpeningId(id); setSelectedWallId(wallId); setSelectedRoomId(''); setDrawingWall(false); };
   const selectRoom = (id: string) => { setArchitecturePreview(null); setSelectedRoomId(id); setSelectedWallId(''); setSelectedOpeningId(''); setDrawingWall(false); };
+
+  // WebMCP callbacks run after render and intentionally read the latest saved project refs.
+  /* eslint-disable react-hooks/refs */
+  useWebMcpTools(buildEditorTools({
+    getSnapshot: () => {
+      const current = projectRef.current;
+      if (!current) return null;
+      return {
+        project: current,
+        objects: sceneObjects[layout],
+        view,
+        editMode,
+        hour,
+        camera,
+        measurements: showMeasurements,
+      };
+    },
+    renameProject: async (name, signal) => {
+      const error = await renameProject(name, signal);
+      const current = projectRef.current;
+      if (error) return toolFailureFromMessage(error, current?.revision);
+      return toolSuccess(`Renamed the apartment to “${name.slice(0, 80)}”.`, { projectId: current?.id, revision: current?.revision });
+    },
+    addFurniture: async (input: AddFurnitureToolInput, signal) => {
+      const current = projectRef.current;
+      if (!current) return toolFailure('NOT_READY', 'The project is still loading.', { retryable: true });
+      const room = current.scene.architecture.find((element): element is RoomElement => element.kind === 'room' && element.id === input.roomId);
+      if (!room) return toolFailure('NOT_FOUND', 'The requested room was not found.', { currentRevision: current.revision });
+      const result = await addObjectCommand(input, signal);
+      const updated = projectRef.current;
+      if (result.error) return toolFailureFromMessage(result.error, updated?.revision);
+      return toolSuccess(`${input.name.slice(0, 80)} was added to ${room.name.slice(0, 80)}.`, {
+        projectId: updated?.id,
+        revision: updated?.revision,
+        data: { furnitureId: result.objectId },
+      });
+    },
+    updateFurniture: async (input: UpdateFurnitureToolInput, signal) => {
+      const current = projectRef.current;
+      if (!current) return toolFailure('NOT_READY', 'The project is still loading.', { retryable: true });
+      const objects = sceneObjects[layout];
+      const item = objects.find((candidate) => candidate.id === input.furnitureId);
+      if (!item) return toolFailure('NOT_FOUND', 'The requested furniture item was not found in the active layout.', { currentRevision: current.revision });
+      const roomsById = new Map(current.scene.architecture.filter((element): element is RoomElement => element.kind === 'room').map((room) => [room.id, room]));
+      const destination = input.roomId ? roomsById.get(input.roomId) : undefined;
+      if (input.roomId && !destination) return toolFailure('NOT_FOUND', 'The destination room was not found.', { currentRevision: current.revision });
+      const center = destination && !input.position ? polygonCentroid(destination.boundary) : null;
+      const requestedPosition = input.position ?? (center ? { x: center.x, z: center.y } : { x: item.transform.position.x, z: item.transform.position.z });
+      const dimensions = input.dimensions ?? item.dimensions;
+      const rotationY = input.rotationY === undefined ? item.transform.rotation.y : ((input.rotationY % 360) + 360) % 360;
+      const roomId = input.roomId ?? roomForPoint(current.scene.architecture, { x: requestedPosition.x, y: requestedPosition.z }, item.roomId)?.id ?? item.roomId;
+      const candidate: SceneObject = {
+        ...item,
+        roomId,
+        dimensions,
+        transform: {
+          ...item.transform,
+          position: { ...item.transform.position, x: requestedPosition.x, z: requestedPosition.z },
+          rotation: { ...item.transform.rotation, y: rotationY },
+        },
+      };
+      const clamped = clampObjectPosition(candidate, requestedPosition, getArchitectureBounds(current.scene.architecture));
+      if (Math.hypot(clamped.x - requestedPosition.x, clamped.z - requestedPosition.z) > 0.001) {
+        return toolFailure('VALIDATION_FAILED', 'That position would place part of the furniture outside the apartment.', { retryable: true, currentRevision: current.revision });
+      }
+      const collision = findCollision(objects, candidate);
+      if (collision) return toolFailure('COLLISION', `${item.name.slice(0, 80)} overlaps ${collision.name.slice(0, 80)}.`, { retryable: true, currentRevision: current.revision });
+      const error = await persistObjectUpdate(item.id, { position: requestedPosition, rotation: { y: rotationY }, dimensions, roomId }, layout, signal);
+      const updated = projectRef.current;
+      if (error) return toolFailureFromMessage(error, updated?.revision);
+      setSelected(item.id);
+      return toolSuccess(`${item.name.slice(0, 80)} was updated.`, { projectId: updated?.id, revision: updated?.revision, data: { furnitureId: item.id } });
+    },
+    removeFurniture: async (furnitureId, signal) => {
+      const current = projectRef.current;
+      if (!current) return toolFailure('NOT_READY', 'The project is still loading.', { retryable: true });
+      const item = sceneObjects[layout].find((candidate) => candidate.id === furnitureId);
+      if (!item) return toolFailure('NOT_FOUND', 'The requested furniture item was not found in the active layout.', { currentRevision: current.revision });
+      const error = await removeObjectCommand(furnitureId, signal);
+      const updated = projectRef.current;
+      if (error) return toolFailureFromMessage(error, updated?.revision);
+      return toolSuccess(`${item.name.slice(0, 80)} was removed.`, { projectId: updated?.id, revision: updated?.revision, data: { furnitureId } });
+    },
+    resizeApartment: async (width, depth, height, signal) => {
+      const error = await resizeApartment(width, depth, height, signal);
+      const current = projectRef.current;
+      if (error) return toolFailureFromMessage(error, current?.revision);
+      return toolSuccess(`Apartment resized to ${width.toFixed(2)} × ${depth.toFixed(2)} × ${height.toFixed(2)} meters.`, { projectId: current?.id, revision: current?.revision });
+    },
+    setEditorView: (nextView, nextEditMode) => {
+      setArchitecturePreview(null);
+      if (nextEditMode) setEditMode(nextEditMode);
+      selectView(nextView);
+      return toolSuccess(`The current page now shows the ${nextView === 'three' ? '3D preview' : nextView} view. This view change was not saved.`, { projectId: projectRef.current?.id, revision: projectRef.current?.revision, data: { saved: false, view: nextView, editMode: nextEditMode ?? editMode } });
+    },
+    setSunlightPreview: (nextHour, nextCamera, measurements) => {
+      selectView('three');
+      if (nextHour !== undefined) setHour(nextHour);
+      if (nextCamera !== undefined) setCamera(nextCamera);
+      if (measurements !== undefined) setShowMeasurements(measurements);
+      return toolSuccess('The current 3D visual sunlight preview was updated. This preview state was not saved.', { projectId: projectRef.current?.id, revision: projectRef.current?.revision, data: { saved: false, hour: nextHour ?? hour, camera: nextCamera ?? camera, measurements: measurements ?? showMeasurements } });
+    },
+    selectEntity: (kind, entityId) => {
+      const current = projectRef.current;
+      if (!current) return toolFailure('NOT_READY', 'The project is still loading.', { retryable: true });
+      if (kind === 'furniture') {
+        if (!sceneObjects[layout].some((item) => item.id === entityId)) return toolFailure('NOT_FOUND', 'That furniture item was not found.', { currentRevision: current.revision });
+        setArchitecturePreview(null);
+        setEditMode('furnish');
+        selectView('plan');
+        setSelected(entityId);
+        setSelectedWallId('');
+        setSelectedOpeningId('');
+        setSelectedRoomId('');
+      } else {
+        const element = current.scene.architecture.find((candidate) => candidate.id === entityId && candidate.kind === kind);
+        if (!element) return toolFailure('NOT_FOUND', `That ${kind} was not found.`, { currentRevision: current.revision });
+        setEditMode('architecture');
+        selectView('plan');
+        if (element.kind === 'room') selectRoom(element.id);
+        else if (element.kind === 'wall') selectWall(element.id);
+        else selectOpening(element.id, element.wallId);
+      }
+      return toolSuccess(`Selected ${kind} ${entityId.slice(0, 128)} for inspection. This selection was not saved.`, { projectId: current.id, revision: current.revision, data: { saved: false, kind, entityId } });
+    },
+  }), Boolean(project));
+  /* eslint-enable react-hooks/refs */
+
   const architectureSuccess = /^(Saving architecture|Wall added|Wall updated|Wall removed|Exterior shape updated|Exterior corner added|Exterior corner removed|Door added|Door updated|Door removed|Window added|Window updated|Window removed|Room renamed|Apartment resized|Everything reset)/.test(architectureMessage) && !architectureMessage.includes('outside the footprint');
 
   if (projectLoadError) {

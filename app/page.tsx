@@ -3,14 +3,9 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-
-type ProjectSummary = {
-  id: string;
-  name: string;
-  revision: number;
-  createdAt: string;
-  updatedAt: string;
-};
+import type { ProjectSummary } from '@/lib/domain/scene';
+import { useWebMcpTools } from '@/app/hooks/use-webmcp-tools';
+import { buildDashboardTools } from '@/app/webmcp/dashboard-tools';
 
 const updatedLabel = (timestamp: string) => {
   const value = new Date(timestamp);
@@ -56,7 +51,7 @@ export default function ProjectsDashboard() {
     return () => { cancelled = true; };
   }, []);
 
-  const createProject = async () => {
+  const createProjectRecord = async (name?: string, signal?: AbortSignal) => {
     if (creating || loading) return;
     setCreating(true);
     setError('');
@@ -64,14 +59,27 @@ export default function ProjectsDashboard() {
       const response = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify(name ? { name } : {}),
+        signal,
       });
       const result = await response.json() as ProjectSummary & { error?: string };
       if (!response.ok) throw new Error(result.error ?? 'The apartment could not be created.');
-      router.push(`/projects/${encodeURIComponent(result.id)}`);
+      setProjects((current) => [result, ...current.filter((project) => project.id !== result.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+      return result;
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : 'The apartment could not be created.');
+      throw createError;
+    } finally {
       setCreating(false);
+    }
+  };
+
+  const createProject = async () => {
+    try {
+      const result = await createProjectRecord();
+      if (result) router.push(`/projects/${encodeURIComponent(result.id)}`);
+    } catch {
+      // createProjectRecord keeps the visible error state current.
     }
   };
 
@@ -123,6 +131,16 @@ export default function ProjectsDashboard() {
       setBusyId('');
     }
   };
+
+  useWebMcpTools(buildDashboardTools({
+    getProjects: () => projects,
+    createProject: async (name, signal) => {
+      const project = await createProjectRecord(name, signal);
+      if (!project) throw new Error('The dashboard is busy. Try again in a moment.');
+      return project;
+    },
+    openProject: (projectId) => router.push(`/projects/${encodeURIComponent(projectId)}`),
+  }), !loading);
 
   return (
     <main className="projects-dashboard">
