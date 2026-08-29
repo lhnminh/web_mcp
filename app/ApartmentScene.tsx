@@ -784,11 +784,12 @@ function Scene({ hour, northAngle, measurements, objects, architecture }: Pick<A
 
 const finishPresets = ['#73877e', '#b98f68', '#c47e58', '#596f78', '#d8cdbb', '#765b45', '#9b6a88', '#4f7c78'];
 
-function FinishPanel({ selection, rawColor, mood, previewColor, saving, message, onRawColor, onMood, onApply, onReset, onClose }: {
+function FinishPanel({ selection, rawColor, mood, previewColor, dirty, saving, message, onRawColor, onMood, onApply, onReset, onClose }: {
   selection: FinishSelection;
   rawColor: string;
   mood: FinishMood;
   previewColor: string;
+  dirty: boolean;
   saving: boolean;
   message: string;
   onRawColor: (color: string) => void;
@@ -804,7 +805,7 @@ function FinishPanel({ selection, rawColor, mood, previewColor, saving, message,
       <div className="finish-color-readout"><label style={{ backgroundColor: rawColor }}><input type="color" value={rawColor} onChange={(event) => onRawColor(event.target.value)} aria-label="Choose a finish color" /></label><span>YOUR COLOR</span><i>→</i><b style={{ backgroundColor: previewColor }} /><span>REFINED</span></div>
       <div className="finish-swatches" aria-label="Curated colors">{finishPresets.map((color) => <button key={color} type="button" aria-label={`Choose ${color}`} style={{ backgroundColor: color }} onClick={() => onRawColor(color)} />)}</div>
       <div className="finish-moods" aria-label="Finish character">{(['soft', 'balanced', 'bold'] as const).map((option) => <button className={mood === option ? 'active' : ''} key={option} type="button" onClick={() => onMood(option)}>{option}</button>)}</div>
-      <div className="finish-actions"><button type="button" onClick={onReset} disabled={saving}>Reset</button><button type="button" onClick={onApply} disabled={saving}>{saving ? 'Saving…' : 'Apply finish'}</button></div>
+      <div className="finish-actions"><button type="button" onClick={onReset} disabled={saving}>Reset</button><button type="button" onClick={onApply} disabled={saving || !dirty}>{saving ? 'Saving…' : 'Apply finish'}</button></div>
       {message && <small role="status">{message}</small>}
     </aside>
   );
@@ -824,15 +825,17 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
   const [selection, setSelection] = useState<FinishSelection | null>(null);
   const [rawColor, setRawColor] = useState('#73877e');
   const [mood, setMood] = useState<FinishMood>('balanced');
+  const [finishDirty, setFinishDirty] = useState(false);
   const [savingFinish, setSavingFinish] = useState(false);
   const [finishMessage, setFinishMessage] = useState('');
-  const previewColor = selection ? harmonizeColor(rawColor, selection.role, mood) : rawColor;
+  const previewColor = selection && finishDirty ? harmonizeColor(rawColor, selection.role, mood) : rawColor;
   const displayedColors = useMemo(() => selection ? { ...props.materialOverrides, [selection.targetKey]: previewColor } : props.materialOverrides, [previewColor, props.materialOverrides, selection]);
   const selectFinish = useCallback((next: FinishSelection) => {
     setSelection(next);
     setRawColor(props.materialOverrides[next.targetKey] ?? next.defaultColor);
     setMood('balanced');
-    setFinishMessage('Previewing live · apply to save');
+    setFinishDirty(false);
+    setFinishMessage('Choose a color or finish character to preview');
   }, [props.materialOverrides]);
   const saveCamera = useCallback((state: CameraPose) => {
     const savedState = { ...state, footprint };
@@ -874,10 +877,17 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
         />
         <CameraController step={props.cameraStep} reset={props.cameraReset} architecture={props.architecture} initialState={savedCamera} onCameraChange={saveCamera} />
       </Canvas></FinishContext.Provider>
-      {selection && <FinishPanel selection={selection} rawColor={rawColor} mood={mood} previewColor={previewColor} saving={savingFinish} message={finishMessage} onRawColor={(color) => { setRawColor(color); setFinishMessage('Previewing live · apply to save'); }} onMood={(nextMood) => { setMood(nextMood); setFinishMessage('Previewing live · apply to save'); }} onApply={() => {
+      {selection && <FinishPanel selection={selection} rawColor={rawColor} mood={mood} previewColor={previewColor} dirty={finishDirty} saving={savingFinish} message={finishMessage} onRawColor={(color) => { setRawColor(color); setFinishDirty(true); setFinishMessage('Previewing live · apply to save'); }} onMood={(nextMood) => { setMood(nextMood); setFinishDirty(true); setFinishMessage('Previewing live · apply to save'); }} onApply={() => {
         setSavingFinish(true);
         setFinishMessage('Saving finish…');
-        void props.onMaterialChange(selection.targetKey, previewColor).then((error) => setFinishMessage(error ?? 'Finish saved · undo is available')).finally(() => setSavingFinish(false));
+        void props.onMaterialChange(selection.targetKey, previewColor).then((error) => {
+          if (error) setFinishMessage(error);
+          else {
+            setRawColor(previewColor);
+            setFinishDirty(false);
+            setFinishMessage('Finish saved · undo is available');
+          }
+        }).finally(() => setSavingFinish(false));
       }} onReset={() => {
         setSavingFinish(true);
         void props.onMaterialChange(selection.targetKey, null).then((error) => {

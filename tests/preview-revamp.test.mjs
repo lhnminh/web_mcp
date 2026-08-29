@@ -243,6 +243,13 @@ test('requested 3D furniture cleanup keeps the earlier bed and clear dining tabl
   assert.match(scene, /\[-0\.46, 0\.46\]\.map\(\(x\) => <FinishBox[\s\S]*position=\{\[x, 0\.81, -0\.15\]\} size=\{\[0\.87, 0\.32, 0\.18\]\}/);
 });
 
+test('3D finish selection opens a visible editor without changing color before user input', () => {
+  assert.match(scene, /const previewColor = selection && finishDirty \? harmonizeColor\(rawColor, selection\.role, mood\) : rawColor/);
+  assert.match(scene, /setFinishDirty\(false\);[\s\S]*Choose a color or finish character to preview/);
+  assert.match(scene, /disabled=\{saving \|\| !dirty\}/);
+  assert.match(styles, /\.three-canvas>\.finish-panel\{[^}]*position:absolute;[^}]*z-index:50;[^}]*pointer-events:auto/);
+});
+
 test('3D furniture details keep the dresser, chair, desk, and bed visually coherent', () => {
   assert.match(scene, /\[0\.25, 0\.5, 0\.75\]\.flatMap\(\(y\) => \[-0\.36, 0\.36\]\.map\(\(x\) => <mesh key=\{`\$\{x\}-\$\{y\}-knob`\}/);
   assert.equal(scene.includes('color="#d09776"'), false, 'accent chair should not have a contrasting seat cushion');
