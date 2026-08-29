@@ -1047,9 +1047,9 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
   };
 
   const heading = selectedOpening ? `${selectedWindow ? 'Window' : 'Door'} properties` : selectedWall ? 'Wall properties' : drawingWall ? 'Add interior wall' : 'Apartment size';
-  const description = selectedOpening ? selectedWindow ? 'Drag the window or edit its dimensions below. Changes save automatically.' : 'Drag the door or edit its dimensions and swing below. Changes save automatically.'
-    : selectedWall ? exterior ? 'Drag the perimeter or edit its dimensions below. Changes save automatically.' : 'Drag the wall or edit its dimensions below. Changes save automatically.'
-      : drawingWall ? 'Choose a start point and an end point directly on the plan.' : 'Resize the full plan or start drawing a new interior wall. Changes save automatically.';
+  const description = selectedOpening ? selectedWindow ? 'Drag the window or edit its dimensions below.' : 'Drag the door or edit its dimensions and swing below.'
+    : selectedWall ? exterior ? 'Drag the perimeter or edit its dimensions below.' : 'Drag the wall or edit its dimensions below.'
+      : drawingWall ? 'Choose a start point and an end point directly on the plan.' : 'Resize the full plan or start drawing a new interior wall.';
 
   const safePreviewWidth = Math.max(width, 0.1);
   const safePreviewDepth = Math.max(depth, 0.1);
