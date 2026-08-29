@@ -348,11 +348,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     if (!item) return false;
     const candidate = { ...item, roomId: placement.roomId, transform: { ...item.transform, position: { ...item.transform.position, ...placement.position } } };
     const collision = findCollision(objects, candidate);
-    if (collision) {
-      setCollisionMessage(`${item.name} overlaps ${collision.name}.`);
-      return false;
-    }
-    setCollisionMessage('');
+    setCollisionMessage(collision ? `${item.name} overlaps ${collision.name}.` : '');
     setSceneObjects((current) => ({
       ...current,
       [layout]: current[layout].map((item) => item.id === objectId
@@ -362,8 +358,9 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     return true;
   };
 
-  const persistObjectUpdate = (objectId: string, transform: { position?: { x: number; z: number }; rotation?: { y: number }; dimensions?: SceneObject['dimensions']; roomId?: RoomId }, layoutOverride?: LayoutKey, signal?: AbortSignal): Promise<string | null> => {
+  const persistObjectUpdate = (objectId: string, transform: { position?: { x: number; z: number }; rotation?: { y: number }; dimensions?: SceneObject['dimensions']; roomId?: RoomId }, layoutOverride?: LayoutKey, signal?: AbortSignal, options?: { allowOverlap?: boolean }): Promise<string | null> => {
     const layoutAtMove = layoutOverride ?? layout;
+    const allowOverlap = options?.allowOverlap === true;
     return enqueueMutation(async () => {
       const current = projectRef.current;
       const expectedRevision = projectRevisionRef.current;
@@ -372,14 +369,14 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         const response = await fetch(`/api/projects/${encodeURIComponent(current.id)}/objects/${encodeURIComponent(objectId)}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ layoutId: `layout-${layoutAtMove.toLowerCase()}`, expectedRevision, transform: { position: transform.position, rotation: transform.rotation }, dimensions: transform.dimensions, roomId: transform.roomId }),
+          body: JSON.stringify({ layoutId: `layout-${layoutAtMove.toLowerCase()}`, expectedRevision, transform: { position: transform.position, rotation: transform.rotation }, dimensions: transform.dimensions, roomId: transform.roomId, allowOverlap }),
           signal,
         });
         const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
         if (response.ok) {
           syncProject(result);
           recordSceneEdit(current.scene, result.scene);
-          setCollisionMessage('');
+          if (!allowOverlap) setCollisionMessage('');
           return null;
         }
         if (result.current) syncProject(result.current);
@@ -397,8 +394,8 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     });
   };
 
-  const saveObjectTransform = (objectId: string, transform: { position?: { x: number; z: number }; rotation?: { y: number }; dimensions?: SceneObject['dimensions']; roomId?: RoomId }, layoutOverride?: LayoutKey) => {
-    void persistObjectUpdate(objectId, transform, layoutOverride).catch(() => undefined);
+  const saveObjectTransform = (objectId: string, transform: { position?: { x: number; z: number }; rotation?: { y: number }; dimensions?: SceneObject['dimensions']; roomId?: RoomId }, options?: { allowOverlap?: boolean }) => {
+    void persistObjectUpdate(objectId, transform, undefined, undefined, options).catch(() => undefined);
   };
 
   const applyHistoryScene = async (scene: SceneDocument, message: string, signal?: AbortSignal) => {
@@ -488,7 +485,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
 
   const commitMove = (objectId: string, placement: ObjectPlacement, before: SceneObject) => {
     void before;
-    saveObjectTransform(objectId, { position: placement.position, roomId: placement.roomId });
+    saveObjectTransform(objectId, { position: placement.position, roomId: placement.roomId }, { allowOverlap: true });
   };
 
   const rotateObject = (objectId: string, degrees: number) => {
@@ -1678,7 +1675,7 @@ function DraggablePlanObject({ item, className, selected, onSelect, onMove, onCo
   return (
     <button
       className={`plan-object draggable-object ${className} ${selected === item.id ? 'object-selected' : ''}`}
-      style={planObjectStyle(item, bounds)}
+      style={{ ...planObjectStyle(item, bounds), zIndex: selected === item.id ? 20 : 10 }}
       onPointerDown={pointerDown}
       onPointerMove={pointerMove}
       onPointerUp={finishDrag}
