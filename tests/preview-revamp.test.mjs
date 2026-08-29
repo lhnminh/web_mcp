@@ -36,6 +36,29 @@ test('undo and redo buttons do not pass React click events as abort signals', ()
   assert.equal(editor.includes('aria-label="Redo last change" onClick={onRedo}'), false);
 });
 
+test('resetting or resizing an apartment cannot restore stale 3D camera framing', () => {
+  assert.match(scene, /footprint: \{ width: number; depth: number \}/);
+  assert.match(scene, /Math\.abs\(savedFootprint\.width - footprint\.width\) < 0\.01/);
+  assert.match(scene, /Math\.abs\(savedFootprint\.depth - footprint\.depth\) < 0\.01/);
+  assert.match(scene, /export function clearSavedApartmentCamera/);
+  assert.match(editor, /clearSavedApartmentCamera\(current\.id\)/);
+});
+
+test('architecture property edits preview live and save without apply buttons', () => {
+  for (const label of ['Apply apartment size', 'Apply wall dimensions', 'Apply window changes', 'Apply door changes']) {
+    assert.equal(editor.includes(label), false, `${label} should not be required`);
+  }
+  assert.match(editor, /aria-label="Apartment width slider"[\s\S]*?onPointerUp=\{\(\) => \{ void saveApartmentValues\(\); \}\}[\s\S]*?onKeyUp=\{\(\) => \{ void saveApartmentValues\(\); \}\}/);
+  assert.match(editor, /aria-label="Exact apartment width"[\s\S]*?onKeyDown=\{blurOnEnter\}[\s\S]*?onBlur=\{\(\) => \{ void saveApartmentValues\(\); \}\}/);
+  assert.match(editor, /aria-label="Wall length slider"[\s\S]*?onPointerUp=\{\(\) => \{ void saveWallValues\(\); \}\}/);
+  assert.match(editor, /aria-label="Exact wall length"[\s\S]*?onBlur=\{\(\) => \{ void saveWallValues\(\); \}\}/);
+  assert.match(editor, /position slider`\}[\s\S]*?onPointerUp=\{\(\) => \{ void saveOpeningValues\(\); \}\}/);
+  assert.match(editor, /Exact \$\{selectedWindow \? 'window' : 'door'\} position`\}[\s\S]*?onBlur=\{\(\) => \{ void saveOpeningValues\(\); \}\}/);
+  assert.match(editor, /saveOpeningValues\(changeOpeningValues\(\{ swing: 'left' \}\)\)/);
+  assert.equal(editor.includes('architecture-autosave-status'), false);
+  assert.equal(editor.includes('Changes save automatically.'), false);
+});
+
 test('the static north arrow is replaced by a saved cardinal compass', () => {
   assert.equal(editor.includes('<div className="north-marker">'), false);
   assert.match(editor, /function PlanCompass/);
