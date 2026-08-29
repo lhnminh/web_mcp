@@ -1742,13 +1742,17 @@ function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onDeselect, onR
   const [success, setSuccess] = useState('');
   const resizeStart = useRef<SceneObject['dimensions'] | null>(null);
 
-  const choosePreset = (index: number) => {
+  const resetDraftToPreset = (index: number) => {
     const preset = objectPresets[index];
-    onDeselect();
     setPresetIndex(index);
     setName(preset.name);
     setRoomId(rooms.some((room) => room.id === preset.roomId) ? preset.roomId : rooms[0]?.id ?? preset.roomId);
-    setDimensions(preset.dimensions);
+    setDimensions({ ...preset.dimensions });
+  };
+
+  const choosePreset = (index: number) => {
+    onDeselect();
+    resetDraftToPreset(index);
     setError('');
     setSuccess('');
   };
@@ -1759,6 +1763,7 @@ function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onDeselect, onR
     setError('');
     setSuccess('');
     const selectedPreset = selectedObject ? objectPresets.find((preset) => getFurnitureKind(preset.category, preset.name) === getFurnitureKind(selectedObject.category, selectedObject.name)) : undefined;
+    const draftResetIndex = selectedPreset ? objectPresets.indexOf(selectedPreset) : presetIndex;
     const selectedCategory = selectedObject ? objectPresets.find((preset) => preset.category === selectedObject.category)?.category : undefined;
     const objectName = selectedObject?.name ?? name.trim();
     const requestedRoomId = selectedObject?.roomId ?? roomId;
@@ -1766,7 +1771,10 @@ function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onDeselect, onR
     const message = await onAdd({ name: objectName, category: selectedPreset?.category ?? selectedCategory ?? objectPresets[presetIndex].category, roomId: destinationRoomId, dimensions: selectedObject?.dimensions ?? dimensions });
     setSaving(false);
     if (message) setError(message);
-    else setSuccess(`${objectName} placed in ${rooms.find((room) => room.id === destinationRoomId)?.name ?? 'the selected room'}.`);
+    else {
+      resetDraftToPreset(draftResetIndex);
+      setSuccess(`${objectName} placed in ${rooms.find((room) => room.id === destinationRoomId)?.name ?? 'the selected room'}.`);
+    }
   };
 
   const activeDimensions = selectedObject?.dimensions ?? dimensions;

@@ -63,7 +63,9 @@ test('furniture selection and add-panel state cannot drift apart', () => {
   assert.match(editor, /onEditMode=\{\(mode\) => \{ setArchitecturePreview\(null\); setSelected\(''\); setEditMode\(mode\); \}\}/);
   assert.match(editor, /onDeselect=\{\(\) => setSelected\(''\)\}/);
   assert.match(editor, /closest\('\.plan-object'\)\) onDeselect\(\)/);
-  assert.match(editor, /const choosePreset = \(index: number\) => \{[\s\S]*?onDeselect\(\);[\s\S]*?setPresetIndex\(index\)/);
+  assert.match(editor, /const choosePreset = \(index: number\) => \{[\s\S]*?onDeselect\(\);[\s\S]*?resetDraftToPreset\(index\)/);
+  assert.match(editor, /const resetDraftToPreset = \(index: number\) => \{[\s\S]*?setDimensions\(\{ \.\.\.preset\.dimensions \}\)/);
+  assert.match(editor, /else \{[\s\S]*?resetDraftToPreset\(draftResetIndex\);[\s\S]*?setSuccess/);
   assert.match(editor, /const objectName = selectedObject\?\.name \?\? name\.trim\(\)/);
   assert.match(editor, /dimensions: selectedObject\?\.dimensions \?\? dimensions/);
   assert.match(editor, /category: selectedPreset\?\.category \?\? selectedCategory \?\? objectPresets\[presetIndex\]\.category/);
