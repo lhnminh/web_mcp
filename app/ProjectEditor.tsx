@@ -820,7 +820,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   return (
     <main className="app-shell">
       <Header key={project.id} projectName={project.name} onRename={renameProject} resetting={resetting} onReset={prepareResetProject} />
-      <ModeBar view={view} compare={compare} editMode={editMode} zoom={zoom} canUndo={!historyBusy && historyState.undo > 0} canRedo={!historyBusy && historyState.redo > 0} onUndo={undo} onRedo={redo} onZoom={setZoom} onView={selectView} onEditMode={(mode) => { setArchitecturePreview(null); setEditMode(mode); }} />
+      <ModeBar view={view} compare={compare} editMode={editMode} zoom={zoom} canUndo={!historyBusy && historyState.undo > 0} canRedo={!historyBusy && historyState.redo > 0} onUndo={undo} onRedo={redo} onZoom={setZoom} onView={selectView} onEditMode={(mode) => { setArchitecturePreview(null); setSelected(''); setEditMode(mode); }} />
       <div className={`workspace-grid ${compare ? 'is-comparing' : ''} ${view === 'plan' && !compare ? 'plan-builder-grid' : ''}`}>
         {compare ? (
           <ComparisonView onBack={() => setCompare(false)} />
@@ -830,12 +830,12 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
             {view === 'plan' && editMode === 'architecture' && <ArchitecturePanel architecture={displayedArchitecture} selectedWallId={selectedWallId} selectedRoomId={selectedRoomId} onSelectWall={selectWall} onSelectRoom={selectRoom} onRenameRoom={renameRoom} />}
             {view === 'three' && <PreviewControls hour={hour} camera={camera} northAngle={project.scene.northAngle} architecture={displayedArchitecture} measurements={showMeasurements} onHour={setHour} onCamera={setCamera} onReset={() => setCameraReset((value) => value + 1)} onMeasurements={setShowMeasurements} />}
             {view === 'evaluation' && <PriorityPanel />}
-            {view === 'plan' && <PlanView northAngle={project.scene.northAngle} onOrientation={updatePlanOrientation} editMode={editMode} architecture={displayedArchitecture} selectedWallId={selectedWallId} selectedOpeningId={selectedOpeningId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} selected={selected} onSelect={setSelected} onSelectWall={selectWall} onSelectOpening={selectOpening} onSelectRoom={selectRoom} layout={layout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={editMode === 'architecture' ? architectureMessage : collisionMessage} statusError={editMode === 'architecture' ? Boolean(architectureMessage) && !architectureSuccess : Boolean(collisionMessage)} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} onAddWall={addWall} onUpdateWall={updateWall} onUpdateOpening={updateOpening} />}
+            {view === 'plan' && <PlanView northAngle={project.scene.northAngle} onOrientation={updatePlanOrientation} editMode={editMode} architecture={displayedArchitecture} selectedWallId={selectedWallId} selectedOpeningId={selectedOpeningId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} selected={selected} onSelect={setSelected} onDeselect={() => setSelected('')} onSelectWall={selectWall} onSelectOpening={selectOpening} onSelectRoom={selectRoom} layout={layout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={editMode === 'architecture' ? architectureMessage : collisionMessage} statusError={editMode === 'architecture' ? Boolean(architectureMessage) && !architectureSuccess : Boolean(collisionMessage)} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} onAddWall={addWall} onUpdateWall={updateWall} onUpdateOpening={updateOpening} />}
             {view === 'three' && <ThreeDView projectId={project.id} hour={hour} northAngle={project.scene.northAngle} camera={camera} cameraReset={cameraReset} measurements={showMeasurements} objects={sceneObjects[layout]} architecture={displayedArchitecture} />}
             {view === 'evaluation' && <EvaluationView />}
           </>
         )}
-        {view === 'plan' && !compare && editMode === 'furnish' && <AddObjectPanel rooms={rooms} loading={projectRevision === null} onAdd={addObject} selectedObject={sceneObjects[layout].find((item) => item.id === selected)} onResize={resizeObject} onCommitResize={saveObjectDimensions} />}
+        {view === 'plan' && !compare && editMode === 'furnish' && <AddObjectPanel rooms={rooms} loading={projectRevision === null} onAdd={addObject} selectedObject={sceneObjects[layout].find((item) => item.id === selected)} onDeselect={() => setSelected('')} onResize={resizeObject} onCommitResize={saveObjectDimensions} />}
         {view === 'plan' && !compare && editMode === 'architecture' && <ArchitecturePropertiesPanel key={`${selectedOpening?.id ?? selectedWall?.id ?? 'apartment'}-${projectRevision}`} architecture={architecture} selectedWall={selectedWall} selectedOpening={selectedOpening} drawingWall={drawingWall} loading={projectRevision === null} onDrawingWall={(drawing) => { setArchitecturePreview(null); setDrawingWall(drawing); if (drawing) { setSelectedWallId(''); setSelectedOpeningId(''); setSelectedRoomId(''); } }} onPreviewApartment={previewApartment} onPreviewWall={previewWall} onPreviewOpening={previewOpening} onResizeApartment={resizeApartment} onUpdateWall={updateWall} onDeleteWall={deleteWall} onAddExteriorCorner={addExteriorCorner} onRemoveExteriorCorner={removeExteriorCorner} onAddDoor={addDoor} onAddWindow={addWindow} onUpdateOpening={updateOpening} onDeleteOpening={deleteOpening} onCloseOpening={() => { setArchitecturePreview(null); setSelectedOpeningId(''); }} />}
       </div>
       {pendingReset && <DestructiveConfirmationDialog kind="reset" projectName={pendingReset.projectName} busy={resetting} onCancel={() => setPendingReset(null)} onConfirm={() => void resetEverything()} />}
@@ -1186,7 +1186,7 @@ function PlanCompass({ northAngle, onOrientation }: { northAngle: number; onOrie
   );
 }
 
-function PlanView({ northAngle, onOrientation, editMode, architecture, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, selected, onSelect, onSelectWall, onSelectOpening, onSelectRoom, layout, zoom, objects, collisionMessage, statusError, onMove, onCommitMove, onRotate, onDelete, onAddWall, onUpdateWall, onUpdateOpening }: { northAngle: number; onOrientation: (direction: CardinalDirection) => Promise<string | null>; editMode: EditMode; architecture: ArchitecturalElement[]; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; selected: string; onSelect: (item: string) => void; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; layout: LayoutKey; zoom: number; objects: SceneObject[]; collisionMessage: string; statusError: boolean; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<unknown>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<unknown>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<unknown> }) {
+function PlanView({ northAngle, onOrientation, editMode, architecture, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, selected, onSelect, onDeselect, onSelectWall, onSelectOpening, onSelectRoom, layout, zoom, objects, collisionMessage, statusError, onMove, onCommitMove, onRotate, onDelete, onAddWall, onUpdateWall, onUpdateOpening }: { northAngle: number; onOrientation: (direction: CardinalDirection) => Promise<string | null>; editMode: EditMode; architecture: ArchitecturalElement[]; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; selected: string; onSelect: (item: string) => void; onDeselect: () => void; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; layout: LayoutKey; zoom: number; objects: SceneObject[]; collisionMessage: string; statusError: boolean; onMove: (id: string, placement: ObjectPlacement) => boolean; onCommitMove: (id: string, placement: ObjectPlacement, before: SceneObject) => void; onRotate: (id: string, degrees: number) => void; onDelete: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<unknown>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<unknown>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<unknown> }) {
   const selectedObject = objects.find((item) => item.id === selected);
   const bounds = getArchitectureBounds(architecture);
   const frame = planFrameSize(bounds.width, bounds.depth);
@@ -1195,7 +1195,7 @@ function PlanView({ northAngle, onOrientation, editMode, architecture, selectedW
     <section className={`plan-workspace edit-${editMode}`} aria-label="2D floor plan editor">
       {editMode === 'furnish' && selectedObject && <div className="object-toolbar" aria-label={`Edit ${selectedObject.name}`}><strong>{selectedObject.name}</strong><button onClick={() => onRotate(selectedObject.id, -90)} aria-label="Rotate left">↶ 90°</button><button onClick={() => onRotate(selectedObject.id, 90)} aria-label="Rotate right">↷ 90°</button><button className="delete-object" onClick={() => onDelete(selectedObject.id)} aria-label={`Remove ${selectedObject.name}`}>Remove</button></div>}
       <PlanCompass northAngle={northAngle} onOrientation={onOrientation} />
-      <div className={`floor-plan-wrap layout-${layout.toLowerCase()}`} style={{ transform: `translate(-50%, -49%) scale(${zoom / 100})` }}>
+      <div className={`floor-plan-wrap layout-${layout.toLowerCase()}`} style={{ transform: `translate(-50%, -49%) scale(${zoom / 100})` }} onClick={(event) => { if (!(event.target instanceof Element) || !event.target.closest('.plan-object')) onDeselect(); }}>
         <div className="geometry-measure top" style={{ width: frame.width }}>{bounds.width.toFixed(2)} m</div><div className="geometry-measure left" style={{ height: frame.height }}>{bounds.depth.toFixed(2)} m</div>
         <div className="floor-plan geometry-plan" style={{ width: frame.width, height: frame.height }}>
           <ArchitecturePlanLayer key={drawingWall ? 'drawing' : 'selecting'} architecture={architecture} bounds={bounds} editMode={editMode} selectedWallId={selectedWallId} selectedOpeningId={selectedOpeningId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} onSelectWall={onSelectWall} onSelectOpening={onSelectOpening} onSelectRoom={onSelectRoom} onAddWall={onAddWall} onUpdateWall={onUpdateWall} onUpdateOpening={onUpdateOpening} />
@@ -1732,7 +1732,7 @@ function DimensionPreview({ name, dimensions }: { name: string; dimensions: Scen
   );
 }
 
-function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onResize, onCommitResize }: { rooms: RoomElement[]; loading: boolean; onAdd: (input: AddObjectInput) => Promise<string | null>; selectedObject?: SceneObject; onResize: (id: string, dimensions: SceneObject['dimensions']) => boolean; onCommitResize: (id: string, dimensions: SceneObject['dimensions'], before: SceneObject['dimensions']) => void }) {
+function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onDeselect, onResize, onCommitResize }: { rooms: RoomElement[]; loading: boolean; onAdd: (input: AddObjectInput) => Promise<string | null>; selectedObject?: SceneObject; onDeselect: () => void; onResize: (id: string, dimensions: SceneObject['dimensions']) => boolean; onCommitResize: (id: string, dimensions: SceneObject['dimensions'], before: SceneObject['dimensions']) => void }) {
   const [presetIndex, setPresetIndex] = useState(0);
   const [name, setName] = useState(objectPresets[0].name);
   const [roomId, setRoomId] = useState<RoomId>('living');
@@ -1742,12 +1742,17 @@ function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onResize, onCom
   const [success, setSuccess] = useState('');
   const resizeStart = useRef<SceneObject['dimensions'] | null>(null);
 
-  const choosePreset = (index: number) => {
+  const resetDraftToPreset = (index: number) => {
     const preset = objectPresets[index];
     setPresetIndex(index);
     setName(preset.name);
     setRoomId(rooms.some((room) => room.id === preset.roomId) ? preset.roomId : rooms[0]?.id ?? preset.roomId);
-    setDimensions(preset.dimensions);
+    setDimensions({ ...preset.dimensions });
+  };
+
+  const choosePreset = (index: number) => {
+    onDeselect();
+    resetDraftToPreset(index);
     setError('');
     setSuccess('');
   };
@@ -1757,14 +1762,25 @@ function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onResize, onCom
     setSaving(true);
     setError('');
     setSuccess('');
-    const destinationRoomId = rooms.some((room) => room.id === roomId) ? roomId : rooms[0]?.id ?? roomId;
-    const message = await onAdd({ name: name.trim(), category: objectPresets[presetIndex].category, roomId: destinationRoomId, dimensions });
+    const selectedPreset = selectedObject ? objectPresets.find((preset) => getFurnitureKind(preset.category, preset.name) === getFurnitureKind(selectedObject.category, selectedObject.name)) : undefined;
+    const draftResetIndex = selectedPreset ? objectPresets.indexOf(selectedPreset) : presetIndex;
+    const selectedCategory = selectedObject ? objectPresets.find((preset) => preset.category === selectedObject.category)?.category : undefined;
+    const objectName = selectedObject?.name ?? name.trim();
+    const requestedRoomId = selectedObject?.roomId ?? roomId;
+    const destinationRoomId = rooms.some((room) => room.id === requestedRoomId) ? requestedRoomId : rooms[0]?.id ?? requestedRoomId;
+    const message = await onAdd({ name: objectName, category: selectedPreset?.category ?? selectedCategory ?? objectPresets[presetIndex].category, roomId: destinationRoomId, dimensions: selectedObject?.dimensions ?? dimensions });
     setSaving(false);
     if (message) setError(message);
-    else setSuccess(`${name.trim()} placed in ${rooms.find((room) => room.id === destinationRoomId)?.name ?? 'the selected room'}.`);
+    else {
+      resetDraftToPreset(draftResetIndex);
+      setSuccess(`${objectName} placed in ${rooms.find((room) => room.id === destinationRoomId)?.name ?? 'the selected room'}.`);
+    }
   };
 
   const activeDimensions = selectedObject?.dimensions ?? dimensions;
+  const activeName = selectedObject?.name ?? name;
+  const activeRoomId = selectedObject?.roomId ?? roomId;
+  const activePresetIndex = selectedObject ? objectPresets.findIndex((preset) => getFurnitureKind(preset.category, preset.name) === getFurnitureKind(selectedObject.category, selectedObject.name)) : presetIndex;
   const setDimension = (key: keyof SceneObject['dimensions'], value: number) => {
     const next = { ...activeDimensions, [key]: Math.max(0.1, value || 0.1) };
     if (selectedObject) onResize(selectedObject.id, next);
@@ -1781,12 +1797,12 @@ function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onResize, onCom
     <aside className="add-object-panel">
       <div className="add-object-heading"><span className="eyebrow">OBJECT LIBRARY</span><h2>Add object</h2><p>Choose an object, confirm its size, then place it into a room.</p></div>
       <form onSubmit={submit}>
-        <fieldset><legend>OBJECT TYPE</legend><div className="preset-grid">{objectPresets.map((preset, index) => <button type="button" key={preset.shortLabel} className={presetIndex === index ? 'active' : ''} onClick={() => choosePreset(index)}><span className="furniture-icon-frame" style={{ display: 'grid', flex: '0 0 42px', width: 48, height: 42, placeItems: 'center' }}><FurnitureGlyph category={preset.category} name={preset.name} /></span>{preset.shortLabel}</button>)}</div></fieldset>
-        <label className="field-label">NAME<input required value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <label className="field-label">PLACE IN<select value={rooms.some((room) => room.id === roomId) ? roomId : rooms[0]?.id ?? ''} onChange={(event) => setRoomId(event.target.value)}>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
+        <fieldset><legend>OBJECT TYPE</legend><div className="preset-grid">{objectPresets.map((preset, index) => <button type="button" key={preset.shortLabel} className={activePresetIndex === index ? 'active' : ''} onClick={() => choosePreset(index)}><span className="furniture-icon-frame" style={{ display: 'grid', flex: '0 0 42px', width: 48, height: 42, placeItems: 'center' }}><FurnitureGlyph category={preset.category} name={preset.name} /></span>{preset.shortLabel}</button>)}</div></fieldset>
+        <label className="field-label">NAME<input required readOnly={Boolean(selectedObject)} value={activeName} onChange={(event) => setName(event.target.value)} /></label>
+        <label className="field-label">PLACE IN<select disabled={Boolean(selectedObject)} value={rooms.some((room) => room.id === activeRoomId) ? activeRoomId : rooms[0]?.id ?? ''} onChange={(event) => setRoomId(event.target.value)}>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
         <DimensionPreview name={selectedObject?.name ?? name} dimensions={activeDimensions} />
         <fieldset className="rhs-dimension-sliders"><legend>{selectedObject ? `EDIT ${selectedObject.name.toUpperCase()} · METERS` : 'DIMENSIONS · METERS'}</legend>{(['width', 'depth', 'height'] as const).map((key) => <label key={key}><span>{key[0].toUpperCase()} · {key.toUpperCase()}</span><input type="range" min="0.1" max={key === 'height' ? 3 : 4} step="0.01" value={activeDimensions[key]} onPointerDown={() => { resizeStart.current = selectedObject ? { ...selectedObject.dimensions } : null; }} onKeyDown={() => { if (!resizeStart.current && selectedObject) resizeStart.current = { ...selectedObject.dimensions }; }} onChange={(event) => setDimension(key, Number(event.target.value))} onPointerUp={(event) => commitDimension(key, Number(event.currentTarget.value))} onKeyUp={(event) => commitDimension(key, Number(event.currentTarget.value))} /><output>{activeDimensions[key].toFixed(2)}</output></label>)}</fieldset>
-        <button className="place-object" disabled={loading || saving || !name.trim()}>{saving ? 'Placing…' : loading ? 'Loading project…' : '＋ Place in room'}</button>
+        <button className="place-object" disabled={loading || saving || !activeName.trim()}>{saving ? 'Placing…' : loading ? 'Loading project…' : '＋ Place in room'}</button>
         {error && <p className="object-form-message error" role="alert">{error}</p>}
         {success && <p className="object-form-message success" role="status">✓ {success}</p>}
       </form>
