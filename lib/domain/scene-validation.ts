@@ -6,6 +6,7 @@ import {
   type Transform3,
   type TransformPatch,
 } from './scene';
+import { isMaterialKey, MAX_MATERIAL_OVERRIDES, normalizeHexColor } from './materials';
 
 export class SceneValidationError extends Error {
   constructor(message: string) {
@@ -59,6 +60,15 @@ export function parseScene(value: unknown): SceneDocument {
   }
   if (!Array.isArray(value.catalog) || !Array.isArray(value.architecture) || !Array.isArray(value.layouts)) {
     throw new SceneValidationError('scene catalog, architecture, and layouts must be arrays');
+  }
+  if (value.materialOverrides !== undefined) {
+    if (!isRecord(value.materialOverrides)) throw new SceneValidationError('scene.materialOverrides must be an object');
+    const entries = Object.entries(value.materialOverrides);
+    if (entries.length > MAX_MATERIAL_OVERRIDES) throw new SceneValidationError(`scene.materialOverrides may contain at most ${MAX_MATERIAL_OVERRIDES} finishes`);
+    for (const [key, color] of entries) {
+      if (!isMaterialKey(key)) throw new SceneValidationError(`invalid material target: ${key}`);
+      if (typeof color !== 'string' || !normalizeHexColor(color)) throw new SceneValidationError(`material ${key} must be a six-digit hex color`);
+    }
   }
 
   const catalogIds = new Set<string>();

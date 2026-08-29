@@ -98,6 +98,8 @@ export interface SceneDocument {
   catalog: CatalogItem[];
   architecture: ArchitecturalElement[];
   layouts: Layout[];
+  /** Saved, per-part 3D finish colors keyed by a stable material target. */
+  materialOverrides?: Record<string, string>;
 }
 
 export interface ProjectRecord {
