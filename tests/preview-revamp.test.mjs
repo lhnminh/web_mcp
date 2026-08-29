@@ -7,6 +7,7 @@ const scene = readFileSync(new URL('../app/ApartmentScene.tsx', import.meta.url)
 const furniture = readFileSync(new URL('../lib/domain/furniture.ts', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
 const nextConfig = readFileSync(new URL('../next.config.ts', import.meta.url), 'utf8');
+const objectRoute = readFileSync(new URL('../app/api/projects/[id]/objects/[objectId]/route.ts', import.meta.url), 'utf8');
 
 test('2D plan omits decorative sheet metadata and the fake imperial scale', () => {
   for (const label of ['ISSUE 02 · AI STUDY', 'FURNITURE PLAN', '5 ft']) {
@@ -20,6 +21,13 @@ test('furniture keeps keyboard nudging without a permanent instruction banner', 
   assert.match(editor, /event\.shiftKey \? 0\.25 : 0\.1/);
   assert.match(editor, /event\.key === 'ArrowLeft'/);
   assert.match(editor, /Arrow keys for precise movement/);
+});
+
+test('overlapping furniture remains selectable and can be moved apart freely', () => {
+  assert.match(editor, /setCollisionMessage\(collision \? `\$\{item\.name\} overlaps \$\{collision\.name\}\.` : ''\);[\s\S]*?setSceneObjects/);
+  assert.match(editor, /saveObjectTransform\(objectId, \{ position: placement\.position, roomId: placement\.roomId \}, \{ allowOverlap: true \}\)/);
+  assert.match(editor, /zIndex: selected === item\.id \? 20 : 10/);
+  assert.match(objectRoute, /if \(collision && body\.allowOverlap !== true\)/);
 });
 
 test('plan zoom controls use one balanced group without extra separators', () => {

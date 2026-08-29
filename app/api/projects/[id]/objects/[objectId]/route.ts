@@ -14,12 +14,16 @@ export async function PATCH(request: Request, context: Context) {
       dimensions?: { width?: unknown; depth?: unknown; height?: unknown };
       roomId?: unknown;
       expectedRevision?: unknown;
+      allowOverlap?: unknown;
     };
     if (typeof body.layoutId !== 'string') {
       return jsonForProfile(profile, { error: 'layoutId is required' }, { status: 400 });
     }
     if (!Number.isInteger(body.expectedRevision) || (body.expectedRevision as number) < 1) {
       return jsonForProfile(profile, { error: 'expectedRevision must be a positive integer' }, { status: 400 });
+    }
+    if (body.allowOverlap !== undefined && typeof body.allowOverlap !== 'boolean') {
+      return jsonForProfile(profile, { error: 'allowOverlap must be a boolean' }, { status: 400 });
     }
 
     const project = await getProject(id, profile.id);
@@ -57,7 +61,7 @@ export async function PATCH(request: Request, context: Context) {
       const other = footprint(candidate.transform.position.x, candidate.transform.position.z, candidate.transform.rotation.y, candidateItem.dimensions.width, candidateItem.dimensions.depth);
       return bounds.left < other.right && bounds.right > other.left && bounds.top < other.bottom && bounds.bottom > other.top;
     });
-    if (collision) return jsonForProfile(profile, { error: `Object overlaps ${collision.id}` }, { status: 422 });
+    if (collision && body.allowOverlap !== true) return jsonForProfile(profile, { error: `Object overlaps ${collision.id}` }, { status: 422 });
     element.transform = nextTransform;
     element.roomId = nextRoomId;
     catalogItem.dimensions = nextDimensions;
