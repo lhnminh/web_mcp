@@ -204,14 +204,14 @@ test('every furniture preset has a distinct detailed 3D model', () => {
 
 test('3D furniture geometry respects the collision footprints used by the 2D plan', () => {
   assert.equal(scene.includes('cylinderGeometry args={[0.62, 0.62, 0.09, 32]}'), false, 'coffee table must not exceed its saved footprint');
-  assert.match(scene, /scale=\{\[0\.52, 0\.045, 0\.28\]\}/);
+  assert.match(scene, /scale=\{\[0\.535, 0\.045, 0\.305\]\}/);
   assert.equal(scene.includes('[[-0.8, 0], [0.8, 0], [0, -0.68], [0, 0.68]]'), false, 'dining chairs must stay inside the dining footprint');
-  assert.match(scene, /position: \[-0\.47, 0, 0\][\s\S]*rotation: Math\.PI \/ 2/);
-  assert.match(scene, /position: \[0\.47, 0, 0\][\s\S]*rotation: -Math\.PI \/ 2/);
-  assert.match(scene, /position: \[0, 0, 0\.31\][\s\S]*rotation: Math\.PI/);
+  assert.match(scene, /position: \[-0\.485, 0, 0\][\s\S]*rotation: Math\.PI \/ 2/);
+  assert.match(scene, /position: \[0\.485, 0, 0\][\s\S]*rotation: -Math\.PI \/ 2/);
+  assert.match(scene, /position: \[0, 0, 0\.33\][\s\S]*rotation: Math\.PI/);
   assert.match(scene, /size=\{\[1\.52, 0\.07, 0\.51\]\}/);
   assert.match(scene, /size=\{\[0\.56, 0\.07, 0\.46\]\}/);
-  assert.match(scene, /position=\{\[0, 0\.915, -0\.13\]\} size=\{\[0\.91, 1\.82, 0\.08\]\}/);
+  assert.match(scene, /position=\{\[0, 0\.915, -0\.13\]\} size=\{\[0\.91, 1\.83, 0\.08\]\}/);
 });
 
 test('the 3D generic object is green and the sofa has no orange accent cushion', () => {
@@ -222,8 +222,15 @@ test('the 3D generic object is green and the sofa has no orange accent cushion',
 });
 
 test('3D model scaling calibrates against each complete modeled height', () => {
-  for (const height of ['1', '1.25', '0.425', '0.87', '1.295', '0.98', '0.665', '1.825', '0.945', '0.8']) {
-    assert.match(scene, new RegExp(`base=\\{\\{ width: [^}]+height: ${height.replace('.', '\\.')}`));
+  const envelopes = [
+    ['sofa', '2.18', '0.91', '1'], ['desk', '1.22', '0.61', '1.25'], ['coffee', '1.07', '0.61', '0.425'],
+    ['dining', '1.22', '0.91', '0.8'], ['bed', '1.52', '2.03', '1.295'], ['chair', '0.76', '0.81', '0.98'],
+    ['nightstand', '0.56', '0.46', '0.665'], ['bookcase', '0.91', '0.35', '1.83'], ['storage', '1.52', '0.51', '0.945'],
+    ['other', '0.8', '0.8', '0.8'],
+  ];
+  for (const [kind, width, depth, height] of envelopes) {
+    assert.match(scene, new RegExp(`${kind}: \\{ width: ${width.replace('.', '\\.')}, depth: ${depth.replace('.', '\\.')}, height: ${height.replace('.', '\\.')} \\}`));
+    assert.match(scene, new RegExp(`base=\\{furnitureModelEnvelopes\\.${kind}\\}`));
   }
   assert.match(scene, /scale=\{\[item\.dimensions\.width \/ base\.width, item\.dimensions\.height \/ base\.height, item\.dimensions\.depth \/ base\.depth\]\}/);
 });
@@ -241,7 +248,22 @@ test('3D furniture details keep the dresser, chair, desk, and bed visually coher
   assert.equal(scene.includes('color="#d09776"'), false, 'accent chair should not have a contrasting seat cushion');
   assert.equal(scene.includes('position={[-0.4, 0.91, 0.02]}'), false, 'desk cup should be removed');
   assert.match(scene, /position=\{\[0, 1\.08, -0\.05\]\}[\s\S]*position=\{\[0, 0\.825, 0\.12\]\}/);
-  assert.match(scene, /position=\{\[0, 0\.3, 0\]\} size=\{\[1\.52, 0\.5, 2\.03\]\}/);
+  assert.match(scene, /position=\{\[0, 0\.325, 0\]\} size=\{\[1\.52, 0\.65, 2\.03\]\}/);
+  assert.match(scene, /position=\{\[0, 0\.9725, -0\.93\]\} size=\{\[1\.52, 0\.645, 0\.12\]\}/);
+});
+
+test('saved dimensions are the single source for architecture and furniture in 2D and 3D', () => {
+  assert.match(scene, /size=\{\[width, height, wall\.thickness\]\}/);
+  assert.match(scene, /opening\.sillHeight \+ opening\.height \/ 2/);
+  assert.match(scene, /size=\{\[frame, opening\.height, depth\]\}/);
+  assert.match(editor, /width: `\$\{\(item\.dimensions\.width \/ bounds\.width\) \* 100\}%`/);
+  assert.match(editor, /height: `\$\{\(item\.dimensions\.depth \/ bounds\.depth\) \* 100\}%`/);
+  assert.equal(styles.includes('min-width:18px;min-height:18px'), false, 'small furniture must not be visually enlarged in the plan');
+  assert.match(styles, /\.plan-object-hit-area\{[^}]*width:max\(100%,24px\);height:max\(100%,24px\)/);
+  assert.match(editor, /wallLength\(wall\)\.toFixed\(2\)/);
+  assert.match(editor, /strokeWidth=\{wall\.thickness\}/);
+  assert.equal(editor.includes('strokeWidth={Math.max(wall.thickness, 0.07)}'), false, 'visible wall thickness must stay to scale');
+  assert.match(editor, /opening\.offset \+ opening\.width/);
 });
 
 test('dining and bookcase plan symbols fill their exact 2D footprints clearly', () => {

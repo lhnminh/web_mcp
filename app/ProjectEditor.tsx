@@ -1442,7 +1442,7 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
         const originalWall = walls.find((candidate) => candidate.id === wall.id) ?? wall;
         const exterior = isExteriorWall(originalWall, bounds, architecture);
         const selectedWall = editMode === 'architecture' && selectedWallId === wall.id;
-        return <g key={wall.id} className={`architecture-wall ${selectedWall ? 'selected' : ''} ${wallDrag?.wallId === wall.id ? 'dragging' : ''}`} onPointerDown={(event) => { if (!drawingWall && editMode === 'architecture') { event.stopPropagation(); onSelectWall(wall.id); } }}><line className="wall-visible" x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness, 0.07)} /><line className={`wall-hit-target ${selectedWall ? 'edge-draggable' : ''}`} x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness * 4, 0.28)} onPointerDown={(event) => beginWallEdgeDrag(event, originalWall)} />{selectedWall && <><circle role="button" aria-label="Drag wall start point" className="wall-endpoint-hit" cx={wall.start.x} cy={wall.start.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'start')} /><circle className="wall-endpoint-handle start" pointerEvents="none" cx={wall.start.x} cy={wall.start.y} r={fontSize * 0.5} /><circle role="button" aria-label="Drag wall end point" className="wall-endpoint-hit" cx={wall.end.x} cy={wall.end.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'end')} /><circle className="wall-endpoint-handle end" pointerEvents="none" cx={wall.end.x} cy={wall.end.y} r={fontSize * 0.5} /><text className="wall-length-label" x={(wall.start.x + wall.end.x) / 2} y={(wall.start.y + wall.end.y) / 2 - fontSize * 0.65} fontSize={fontSize * 0.9} textAnchor="middle">{wallLength(wall).toFixed(2)} m · H {wall.height.toFixed(2)} m · {wallDrag?.wallId === wall.id ? 'DRAGGING' : exterior ? 'DRAG CORNERS OR EDGE' : 'DRAG WALL OR EITHER END'}</text></>}</g>;
+        return <g key={wall.id} className={`architecture-wall ${selectedWall ? 'selected' : ''} ${wallDrag?.wallId === wall.id ? 'dragging' : ''}`} onPointerDown={(event) => { if (!drawingWall && editMode === 'architecture') { event.stopPropagation(); onSelectWall(wall.id); } }}><line className="wall-visible" x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={wall.thickness} /><line className={`wall-hit-target ${selectedWall ? 'edge-draggable' : ''}`} x1={wall.start.x} y1={wall.start.y} x2={wall.end.x} y2={wall.end.y} strokeWidth={Math.max(wall.thickness * 4, 0.28)} onPointerDown={(event) => beginWallEdgeDrag(event, originalWall)} />{selectedWall && <><circle role="button" aria-label="Drag wall start point" className="wall-endpoint-hit" cx={wall.start.x} cy={wall.start.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'start')} /><circle className="wall-endpoint-handle start" pointerEvents="none" cx={wall.start.x} cy={wall.start.y} r={fontSize * 0.5} /><circle role="button" aria-label="Drag wall end point" className="wall-endpoint-hit" cx={wall.end.x} cy={wall.end.y} r={fontSize} onPointerDown={(event) => beginWallEndpointDrag(event, originalWall, 'end')} /><circle className="wall-endpoint-handle end" pointerEvents="none" cx={wall.end.x} cy={wall.end.y} r={fontSize * 0.5} /><text className="wall-length-label" x={(wall.start.x + wall.end.x) / 2} y={(wall.start.y + wall.end.y) / 2 - fontSize * 0.65} fontSize={fontSize * 0.9} textAnchor="middle">{wallLength(wall).toFixed(2)} m · H {wall.height.toFixed(2)} m · {wallDrag?.wallId === wall.id ? 'DRAGGING' : exterior ? 'DRAG CORNERS OR EDGE' : 'DRAG WALL OR EITHER END'}</text></>}</g>;
       })}
       {renderedOpenings.map((opening) => {
         const wall = renderedWalls.find((candidate) => candidate.id === opening.wallId);
@@ -1614,8 +1614,8 @@ function planObjectStyle(item: SceneObject, bounds: ReturnType<typeof getArchite
   return {
     left: `${point.x * 100}%`,
     top: `${point.y * 100}%`,
-    width: `${Math.max(3, (item.dimensions.width / bounds.width) * 100)}%`,
-    height: `${Math.max(3, (item.dimensions.depth / bounds.depth) * 100)}%`,
+    width: `${(item.dimensions.width / bounds.width) * 100}%`,
+    height: `${(item.dimensions.depth / bounds.depth) * 100}%`,
     transform: `translate(-50%, -50%) rotate(${item.transform.rotation.y}deg)`,
   };
 }
@@ -1684,6 +1684,7 @@ function DraggablePlanObject({ item, className, selected, onSelect, onMove, onCo
       aria-label={`${item.name}. Drag or use arrow keys to move. Use the edit toolbar to rotate or remove.`}
       title="Select and drag · Arrow keys for precise movement"
     >
+      <span className="plan-object-hit-area" aria-hidden="true" />
       {children}
       <em className="object-height-label" style={{ transform: `rotate(${-item.transform.rotation.y}deg)` }}>
         H {item.dimensions.height.toFixed(2)} m

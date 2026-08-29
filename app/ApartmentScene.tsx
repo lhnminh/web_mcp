@@ -51,6 +51,22 @@ const palette = {
   brass: '#b88a4f',
 };
 
+// These are the exact unscaled outer envelopes of the detailed models below.
+// Every model is scaled from this envelope to the saved meter dimensions, so
+// the 2D footprint, collision geometry, measurements, and 3D result stay equal.
+const furnitureModelEnvelopes = {
+  sofa: { width: 2.18, depth: 0.91, height: 1 },
+  desk: { width: 1.22, depth: 0.61, height: 1.25 },
+  coffee: { width: 1.07, depth: 0.61, height: 0.425 },
+  dining: { width: 1.22, depth: 0.91, height: 0.8 },
+  bed: { width: 1.52, depth: 2.03, height: 1.295 },
+  chair: { width: 0.76, depth: 0.81, height: 0.98 },
+  nightstand: { width: 0.56, depth: 0.46, height: 0.665 },
+  bookcase: { width: 0.91, depth: 0.35, height: 1.83 },
+  storage: { width: 1.52, depth: 0.51, height: 0.945 },
+  other: { width: 0.8, depth: 0.8, height: 0.8 },
+} as const;
+
 const CAMERA_CONTROL_POLAR_ANGLE = THREE.MathUtils.degToRad(0.5);
 
 function isVectorTuple(value: unknown): value is [number, number, number] {
@@ -436,7 +452,7 @@ function Architecture({ measurements, architecture }: { measurements: boolean; a
 function Sofa({ position, rotation = 0 }: { position: [number, number, number]; rotation?: number }) {
   return (
     <group position={position} rotation={[0, rotation, 0]}>
-      <Box position={[0, 0.28, 0]} size={[2.18, 0.34, 0.88]} color={palette.sage} radius={0.12} />
+      <Box position={[0, 0.28, 0]} size={[2.18, 0.34, 0.91]} color={palette.sage} radius={0.12} />
       <Box position={[-0.46, 0.55, 0.08]} size={[0.87, 0.2, 0.62]} color="#879b91" radius={0.07} />
       <Box position={[0.46, 0.55, 0.08]} size={[0.87, 0.2, 0.62]} color="#879b91" radius={0.07} />
       <Box position={[0, 0.73, -0.35]} size={[2.18, 0.54, 0.18]} color="#687b73" radius={0.1} />
@@ -463,10 +479,10 @@ function Desk({ position, rotation = 0 }: { position: [number, number, number]; 
 
 function DiningSet({ position, rotation = 0 }: { position: [number, number, number]; rotation?: number }) {
   const chairs = [
-    { position: [-0.47, 0, 0] as [number, number, number], rotation: Math.PI / 2 },
-    { position: [0.47, 0, 0] as [number, number, number], rotation: -Math.PI / 2 },
-    { position: [0, 0, -0.31] as [number, number, number], rotation: 0 },
-    { position: [0, 0, 0.31] as [number, number, number], rotation: Math.PI },
+    { position: [-0.485, 0, 0] as [number, number, number], rotation: Math.PI / 2 },
+    { position: [0.485, 0, 0] as [number, number, number], rotation: -Math.PI / 2 },
+    { position: [0, 0, -0.33] as [number, number, number], rotation: 0 },
+    { position: [0, 0, 0.33] as [number, number, number], rotation: Math.PI },
   ];
   return (
     <group position={position} rotation={[0, rotation, 0]}>
@@ -475,7 +491,7 @@ function DiningSet({ position, rotation = 0 }: { position: [number, number, numb
       {chairs.map((chair, index) => (
         <group key={index} position={chair.position} rotation={[0, chair.rotation, 0]}>
           <Box position={[0, 0.42, 0]} size={[0.27, 0.075, 0.25]} color={palette.sage} radius={0.045} />
-          <Box position={[0, 0.63, -0.095]} size={[0.27, 0.34, 0.055]} color={palette.sage} radius={0.045} rotation={[-0.08, 0, 0]} />
+          <Box position={[0, 0.63, -0.095]} size={[0.27, 0.34, 0.055]} color={palette.sage} radius={0.045} />
           {[-0.09, 0.09].flatMap((legX) => [-0.075, 0.075].map((legZ) => <Box key={`${legX}-${legZ}`} position={[legX, 0.2, legZ]} size={[0.032, 0.4, 0.032]} color={palette.charcoal} radius={0.01} />))}
         </group>
       ))}
@@ -486,12 +502,12 @@ function DiningSet({ position, rotation = 0 }: { position: [number, number, numb
 function Bed({ position, rotation = 0 }: { position: [number, number, number]; rotation?: number }) {
   return (
     <group position={position} rotation={[0, rotation, 0]}>
-      <Box position={[0, 0.3, 0]} size={[1.52, 0.5, 2.03]} color={palette.darkWood} radius={0.08} />
-      <Box position={[0, 0.5, 0]} size={[1.44, 0.26, 1.92]} color={palette.linen} radius={0.1} />
-      <Box position={[0, 0.82, -0.93]} size={[1.52, 0.95, 0.12]} color={palette.sage} radius={0.08} />
-      <Box position={[-0.38, 0.71, -0.65]} size={[0.58, 0.16, 0.43]} color={palette.trim} radius={0.09} />
-      <Box position={[0.38, 0.71, -0.65]} size={[0.58, 0.16, 0.43]} color={palette.trim} radius={0.09} />
-      <Box position={[0, 0.66, 0.3]} size={[1.43, 0.06, 0.8]} color="#ad7258" radius={0.03} />
+      <Box position={[0, 0.325, 0]} size={[1.52, 0.65, 2.03]} color={palette.darkWood} radius={0.08} />
+      <Box position={[0, 0.76, 0]} size={[1.44, 0.22, 1.92]} color={palette.linen} radius={0.1} />
+      <Box position={[0, 0.9725, -0.93]} size={[1.52, 0.645, 0.12]} color={palette.sage} radius={0.08} />
+      <Box position={[-0.38, 0.91, -0.65]} size={[0.58, 0.16, 0.43]} color={palette.trim} radius={0.09} />
+      <Box position={[0.38, 0.91, -0.65]} size={[0.58, 0.16, 0.43]} color={palette.trim} radius={0.09} />
+      <Box position={[0, 0.88, 0.3]} size={[1.43, 0.06, 0.8]} color="#ad7258" radius={0.03} />
     </group>
   );
 }
@@ -499,10 +515,10 @@ function Bed({ position, rotation = 0 }: { position: [number, number, number]; r
 function Dresser({ position, rotation = 0 }: { position: [number, number, number]; rotation?: number }) {
   return (
     <group position={position} rotation={[0, rotation, 0]}>
-      <Box position={[0, 0.47, 0]} size={[1.52, 0.84, 0.51]} color={palette.wood} radius={0.04} />
-      <Box position={[0, 0.91, -0.01]} size={[1.52, 0.07, 0.51]} color="#c8b08f" radius={0.025} />
-      {[0.25, 0.5, 0.75].flatMap((y) => [-0.36, 0.36].map((x) => <Box key={`${x}-${y}-drawer`} position={[x, y, 0.264]} size={[0.65, 0.2, 0.022]} color={palette.wood} radius={0.018} />))}
-      {[0.25, 0.5, 0.75].flatMap((y) => [-0.36, 0.36].map((x) => <mesh key={`${x}-${y}-knob`} position={[x, y, 0.292]} castShadow><sphereGeometry args={[0.035, 12, 12]} /><meshStandardMaterial color={palette.brass} metalness={0.45} roughness={0.3} /></mesh>))}
+      <Box position={[0, 0.47, 0]} size={[1.52, 0.84, 0.42]} color={palette.wood} radius={0.04} />
+      <Box position={[0, 0.91, 0]} size={[1.52, 0.07, 0.51]} color="#c8b08f" radius={0.025} />
+      {[0.25, 0.5, 0.75].flatMap((y) => [-0.36, 0.36].map((x) => <Box key={`${x}-${y}-drawer`} position={[x, y, 0.218]} size={[0.65, 0.2, 0.018]} color={palette.wood} radius={0.018} />))}
+      {[0.25, 0.5, 0.75].flatMap((y) => [-0.36, 0.36].map((x) => <mesh key={`${x}-${y}-knob`} position={[x, y, 0.235]} castShadow><sphereGeometry args={[0.018, 12, 12]} /><meshStandardMaterial color={palette.brass} metalness={0.45} roughness={0.3} /></mesh>))}
       {[-0.62, 0.62].map((x) => <Box key={`${x}-foot`} position={[x, 0.08, 0]} size={[0.08, 0.16, 0.08]} color={palette.darkWood} radius={0.02} />)}
     </group>
   );
@@ -511,7 +527,7 @@ function Dresser({ position, rotation = 0 }: { position: [number, number, number
 function CoffeeTable({ position }: { position: [number, number, number] }) {
   return (
     <group position={position}>
-      <mesh position={[0, 0.38, 0]} scale={[0.52, 0.045, 0.28]} castShadow receiveShadow>
+      <mesh position={[0, 0.38, 0]} scale={[0.535, 0.045, 0.305]} castShadow receiveShadow>
         <sphereGeometry args={[1, 36, 18]} />
         <meshStandardMaterial color={palette.darkWood} roughness={0.65} />
       </mesh>
@@ -524,9 +540,9 @@ function CoffeeTable({ position }: { position: [number, number, number] }) {
 function AccentChair({ position }: { position: [number, number, number] }) {
   return (
     <group position={position}>
-      <Box position={[0, 0.43, 0.04]} size={[0.68, 0.2, 0.68]} color={palette.rust} radius={0.13} />
-      <Box position={[0, 0.72, -0.27]} size={[0.68, 0.52, 0.16]} color="#b56f50" radius={0.12} rotation={[-0.09, 0, 0]} />
-      {[-0.32, 0.32].map((x) => <Box key={`${x}-arm`} position={[x, 0.58, 0]} size={[0.08, 0.28, 0.58]} color="#9f5f47" radius={0.045} />)}
+      <Box position={[0, 0.43, 0]} size={[0.76, 0.2, 0.81]} color={palette.rust} radius={0.13} />
+      <Box position={[0, 0.72, -0.27]} size={[0.68, 0.52, 0.16]} color="#b56f50" radius={0.12} />
+      {[-0.34, 0.34].map((x) => <Box key={`${x}-arm`} position={[x, 0.58, 0]} size={[0.08, 0.28, 0.58]} color="#9f5f47" radius={0.045} />)}
       {[-0.25, 0.25].flatMap((x) => [-0.23, 0.23].map((z) => <Box key={`${x}-${z}`} position={[x, 0.18, z]} size={[0.055, 0.36, 0.055]} color={palette.darkWood} radius={0.018} rotation={[z > 0 ? 0.06 : -0.06, 0, x > 0 ? -0.05 : 0.05]} />))}
     </group>
   );
@@ -548,8 +564,8 @@ function Bookcase({ position }: { position: [number, number, number] }) {
   const shelves = [0.08, 0.5, 0.92, 1.34, 1.76];
   return (
     <group position={position}>
-      <Box position={[0, 0.915, -0.13]} size={[0.91, 1.82, 0.08]} color={palette.darkWood} radius={0.025} />
-      {[-0.43, 0.43].map((x) => <Box key={x} position={[x, 0.92, 0]} size={[0.07, 1.83, 0.35]} color={palette.wood} radius={0.022} />)}
+      <Box position={[0, 0.915, -0.13]} size={[0.91, 1.83, 0.08]} color={palette.darkWood} radius={0.025} />
+      {[-0.42, 0.42].map((x) => <Box key={x} position={[x, 0.915, 0]} size={[0.07, 1.83, 0.35]} color={palette.wood} radius={0.022} />)}
       {shelves.map((y) => <Box key={y} position={[0, y, 0]} size={[0.88, 0.065, 0.35]} color="#b58b65" radius={0.018} />)}
       {[[-0.29, 0.27, '#73877e'], [-0.12, 0.29, '#c47e58'], [0.07, 0.26, '#d8cdbb'], [0.26, 0.3, '#596f78']].flatMap(([x, width, color], row) => [0.12, 0.54, 0.96, 1.38].map((y) => <Box key={`${row}-${y}`} position={[Number(x), y + 0.12, 0.085]} size={[Number(width) * 0.55, 0.24 + row * 0.015, 0.14]} color={String(color)} radius={0.012} />))}
     </group>
@@ -591,16 +607,16 @@ function Furniture({ objects }: { objects: SceneObject[] }) {
     <group>
       {objects.map((item) => {
         const kind = getFurnitureKind(item.category, item.name);
-        if (kind === 'sofa') return <ScaledFurniture key={item.id} item={item} base={{ width: 2.18, depth: 0.91, height: 1 }}><Sofa position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'desk') return <ScaledFurniture key={item.id} item={item} base={{ width: 1.22, depth: 0.61, height: 1.25 }}><Desk position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'coffee') return <ScaledFurniture key={item.id} item={item} base={{ width: 1.07, depth: 0.61, height: 0.425 }}><CoffeeTable position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'dining') return <ScaledFurniture key={item.id} item={item} base={{ width: 1.22, depth: 0.91, height: 0.87 }}><DiningSet position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'bed') return <ScaledFurniture key={item.id} item={item} base={{ width: 1.52, depth: 2.03, height: 1.295 }}><Bed position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'chair') return <ScaledFurniture key={item.id} item={item} base={{ width: 0.76, depth: 0.81, height: 0.98 }}><AccentChair position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'nightstand') return <ScaledFurniture key={item.id} item={item} base={{ width: 0.56, depth: 0.46, height: 0.665 }}><Nightstand position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'bookcase') return <ScaledFurniture key={item.id} item={item} base={{ width: 0.91, depth: 0.35, height: 1.825 }}><Bookcase position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'storage') return <ScaledFurniture key={item.id} item={item} base={{ width: 1.52, depth: 0.51, height: 0.945 }}><Dresser position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'other') return <ScaledFurniture key={item.id} item={item} base={{ width: 0.8, depth: 0.8, height: 0.8 }}><GenericObject position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'sofa') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.sofa}><Sofa position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'desk') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.desk}><Desk position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'coffee') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.coffee}><CoffeeTable position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'dining') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.dining}><DiningSet position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'bed') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.bed}><Bed position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'chair') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.chair}><AccentChair position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'nightstand') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.nightstand}><Nightstand position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'bookcase') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.bookcase}><Bookcase position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'storage') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.storage}><Dresser position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'other') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.other}><GenericObject position={[0, 0, 0]} /></ScaledFurniture>;
         return <AddedFurniture key={item.id} item={item} />;
       })}
     </group>
