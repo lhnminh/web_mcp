@@ -62,8 +62,19 @@ export function harmonizeColor(input: string, role: MaterialRole, mood: FinishMo
   const normalized = normalizeHexColor(input) ?? '#73877e';
   const hsl = hexToHsl(normalized);
   const range = roleRanges[role];
-  const moodSaturation = mood === 'soft' ? range.saturation[0] : mood === 'bold' ? range.saturation[1] : clamp(hsl.saturation, range.saturation[0], range.saturation[1]);
-  const moodLightness = mood === 'soft' ? range.lightness[1] : mood === 'bold' ? range.lightness[0] : clamp(hsl.lightness, range.lightness[0], range.lightness[1]);
-  const saturation = hsl.saturation < 2 ? 0 : moodSaturation;
-  return hslToHex(hsl.hue, saturation, moodLightness);
+  const balancedSaturation = clamp(hsl.saturation, range.saturation[0], range.saturation[1]);
+  const balancedLightness = clamp(hsl.lightness, range.lightness[0], range.lightness[1]);
+
+  // Mood needs to be a visible treatment of the user's hue—not a single
+  // endpoint for every input. The earlier endpoint approach made every soft
+  // textile nearly white and made bold indistinguishable from balanced for
+  // already-bright colors.
+  const softSaturation = clamp(hsl.saturation * 0.62, 0, Math.max(range.saturation[0] + 4, range.saturation[1] - 5));
+  const softLightness = clamp(hsl.lightness + 9, range.lightness[0] + 4, range.lightness[1] - 4);
+  const boldSaturation = clamp(Math.max(hsl.saturation * 1.22, range.saturation[1] + 14), range.saturation[0] + 6, Math.min(78, range.saturation[1] + 30));
+  const boldLightness = clamp(hsl.lightness - 8, Math.max(16, range.lightness[0] - 10), range.lightness[1] - 8);
+
+  if (mood === 'soft') return hslToHex(hsl.hue, hsl.saturation < 2 ? 0 : softSaturation, softLightness);
+  if (mood === 'bold') return hslToHex(hsl.hue, hsl.saturation < 2 ? 0 : boldSaturation, boldLightness);
+  return hslToHex(hsl.hue, hsl.saturation < 2 ? 0 : balancedSaturation, balancedLightness);
 }

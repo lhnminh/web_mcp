@@ -74,6 +74,20 @@ test('material harmonization preserves hue while keeping each material in a tast
   assert.equal(materialsModule.isMaterialKey('bad target'), false);
 });
 
+test('finish moods remain visibly distinct for muted, bright, dark, and light color choices', () => {
+  const inputs = ['#73877e', '#00e883', '#ff00ff', '#0b1020', '#f7f7f7'];
+  for (const role of ['wood', 'textile', 'accent', 'metal', 'wall', 'floor', 'surface']) {
+    for (const input of inputs) {
+      const soft = materialsModule.harmonizeColor(input, role, 'soft');
+      const balanced = materialsModule.harmonizeColor(input, role, 'balanced');
+      const bold = materialsModule.harmonizeColor(input, role, 'bold');
+      assert.notEqual(soft, balanced, `${role} soft should differ from balanced for ${input}`);
+      assert.notEqual(bold, balanced, `${role} bold should differ from balanced for ${input}`);
+      assert.notEqual(soft, '#ffffff', `${role} soft should not wash ${input} to white`);
+    }
+  }
+});
+
 function assertClosedObjectSchemas(schema, path = 'inputSchema') {
   if (!schema || typeof schema !== 'object') return;
   if (schema.type === 'object') assert.equal(schema.additionalProperties, false, `${path} must reject additional properties`);
