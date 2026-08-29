@@ -29,6 +29,13 @@ test('plan zoom controls use one balanced group without extra separators', () =>
   assert.match(styles, /\.zoom-tools button:last-child\{border-right:1px solid #c7d0d5\}/);
 });
 
+test('undo and redo buttons do not pass React click events as abort signals', () => {
+  assert.match(editor, /aria-label="Undo last change" onClick=\{\(\) => \{ void onUndo\(\); \}\}/);
+  assert.match(editor, /aria-label="Redo last change" onClick=\{\(\) => \{ void onRedo\(\); \}\}/);
+  assert.equal(editor.includes('aria-label="Undo last change" onClick={onUndo}'), false);
+  assert.equal(editor.includes('aria-label="Redo last change" onClick={onRedo}'), false);
+});
+
 test('the static north arrow is replaced by a saved cardinal compass', () => {
   assert.equal(editor.includes('<div className="north-marker">'), false);
   assert.match(editor, /function PlanCompass/);

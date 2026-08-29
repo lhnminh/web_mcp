@@ -905,7 +905,7 @@ function ModeBar({ view, compare, editMode, zoom, canUndo, canRedo, onUndo, onRe
       {compare ? (
         <div className="comparison-mode-title"><span className="split-icon" /> SIDE-BY-SIDE DECISION</div>
       ) : view === 'plan' ? (
-        <div className="plan-tools"><button aria-label="Undo last change" onClick={onUndo} disabled={!canUndo}>↶</button><button aria-label="Redo last change" onClick={onRedo} disabled={!canRedo}>↷</button><div className="zoom-tools"><button aria-label="Zoom out" onClick={() => onZoom(Math.max(50, zoom - 5))} disabled={zoom <= 50}>−</button><strong>{zoom}%</strong><button aria-label="Zoom in" onClick={() => onZoom(Math.min(120, zoom + 5))} disabled={zoom >= 120}>+</button></div></div>
+        <div className="plan-tools"><button aria-label="Undo last change" onClick={() => { void onUndo(); }} disabled={!canUndo}>↶</button><button aria-label="Redo last change" onClick={() => { void onRedo(); }} disabled={!canRedo}>↷</button><div className="zoom-tools"><button aria-label="Zoom out" onClick={() => onZoom(Math.max(50, zoom - 5))} disabled={zoom <= 50}>−</button><strong>{zoom}%</strong><button aria-label="Zoom in" onClick={() => onZoom(Math.min(120, zoom + 5))} disabled={zoom >= 120}>+</button></div></div>
       ) : view === 'three' ? (
         <div className="view-context">ORIENTATION-AWARE VISUAL PREVIEW</div>
       ) : (
