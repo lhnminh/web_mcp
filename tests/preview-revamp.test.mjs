@@ -36,6 +36,14 @@ test('undo and redo buttons do not pass React click events as abort signals', ()
   assert.equal(editor.includes('aria-label="Redo last change" onClick={onRedo}'), false);
 });
 
+test('resetting or resizing an apartment cannot restore stale 3D camera framing', () => {
+  assert.match(scene, /footprint: \{ width: number; depth: number \}/);
+  assert.match(scene, /Math\.abs\(savedFootprint\.width - footprint\.width\) < 0\.01/);
+  assert.match(scene, /Math\.abs\(savedFootprint\.depth - footprint\.depth\) < 0\.01/);
+  assert.match(scene, /export function clearSavedApartmentCamera/);
+  assert.match(editor, /clearSavedApartmentCamera\(current\.id\)/);
+});
+
 test('the static north arrow is replaced by a saved cardinal compass', () => {
   assert.equal(editor.includes('<div className="north-marker">'), false);
   assert.match(editor, /function PlanCompass/);

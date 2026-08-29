@@ -7,7 +7,7 @@ import type { ArchitecturalElement, OpeningElement, Point2, RoomElement, SceneDo
 import { getArchitectureBounds, isExteriorWall, isRectangularRoom, polygonArea, polygonCentroid, rebuildSceneRooms, resizeSceneFootprint, roomForPoint, wallLength } from '@/lib/domain/architecture';
 import { blankApartmentScene } from '@/lib/domain/demo-scene';
 import { getWindowExposureSummary, northAngleForPlanFacing, planFacingFromNorthAngle, type CardinalDirection } from '@/lib/domain/sunlight';
-import ApartmentScene from './ApartmentScene';
+import ApartmentScene, { clearSavedApartmentCamera } from './ApartmentScene';
 import { getFurnitureKind } from '@/lib/domain/furniture';
 import { useWebMcpTools } from '@/app/hooks/use-webmcp-tools';
 import { buildEditorTools, CURRENT_EDITOR_TOOL_NAMES, type AddFurnitureToolInput, type AddOpeningToolInput, type AddWallToolInput, type UpdateFurnitureToolInput, type UpdateOpeningToolInput, type UpdateWallToolInput } from '@/app/webmcp/editor-tools';
@@ -463,6 +463,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     await moveSaveQueue.current;
     const error = await saveScene(structuredClone(blankApartmentScene), 'Everything reset · start again from the blank apartment.', { recordHistory: false });
     if (!error) {
+      clearSavedApartmentCamera(current.id);
       undoStack.current = [];
       redoStack.current = [];
       updateHistoryState();

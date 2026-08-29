@@ -33,7 +33,10 @@ type ApartmentSceneProps = {
 type CameraViewState = {
   position: [number, number, number];
   target: [number, number, number];
+  footprint: { width: number; depth: number };
 };
+
+type CameraPose = Pick<CameraViewState, 'position' | 'target'>;
 
 const palette = {
   wall: '#eee9dd',
@@ -54,11 +57,26 @@ function isVectorTuple(value: unknown): value is [number, number, number] {
   return Array.isArray(value) && value.length === 3 && value.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate));
 }
 
-function readSessionCamera(storageKey: string): CameraViewState | null {
+const cameraStorageKey = (projectId: string) => `dwellwise:3d-camera:${projectId}`;
+
+function cameraFootprint(architecture: ArchitecturalElement[]) {
+  const bounds = getArchitectureBounds(architecture);
+  return { width: bounds.width, depth: bounds.depth };
+}
+
+function readSessionCamera(storageKey: string, footprint: CameraViewState['footprint']): CameraViewState | null {
   if (typeof window === 'undefined') return null;
   try {
     const value = JSON.parse(window.sessionStorage.getItem(storageKey) ?? 'null') as Partial<CameraViewState> | null;
-    return value && isVectorTuple(value.position) && isVectorTuple(value.target) ? { position: value.position, target: value.target } : null;
+    const savedFootprint = value?.footprint;
+    const matchesFootprint = savedFootprint
+      && Number.isFinite(savedFootprint.width)
+      && Number.isFinite(savedFootprint.depth)
+      && Math.abs(savedFootprint.width - footprint.width) < 0.01
+      && Math.abs(savedFootprint.depth - footprint.depth) < 0.01;
+    return value && isVectorTuple(value.position) && isVectorTuple(value.target) && matchesFootprint
+      ? { position: value.position, target: value.target, footprint: savedFootprint }
+      : null;
   } catch {
     return null;
   }
@@ -70,6 +88,16 @@ function writeSessionCamera(storageKey: string, state: CameraViewState) {
   } catch {
     // The camera remains usable when browser storage is unavailable.
   }
+}
+
+export function clearSavedApartmentCamera(projectId: string) {
+  if (typeof window === 'undefined') return;
+  const storageKey = cameraStorageKey(projectId);
+  const clear = () => window.sessionStorage.removeItem(storageKey);
+  clear();
+  // A mounted 3D scene flushes its last pending camera during unmount.
+  // Clear once more after React commits the reset back to the plan view.
+  window.setTimeout(clear, 0);
 }
 
 function getTopDownCamera(architecture: ArchitecturalElement[], step: number) {
@@ -90,7 +118,7 @@ function getTopDownCamera(architecture: ArchitecturalElement[], step: number) {
   };
 }
 
-function CameraController({ step, reset, architecture, initialState, onCameraChange }: { step: number; reset: number; architecture: ArchitecturalElement[]; initialState: CameraViewState | null; onCameraChange: (state: CameraViewState) => void }) {
+function CameraController({ step, reset, architecture, initialState, onCameraChange }: { step: number; reset: number; architecture: ArchitecturalElement[]; initialState: CameraViewState | null; onCameraChange: (state: CameraPose) => void }) {
   const controls = useRef<OrbitControlsImpl>(null);
   const initialized = useRef(false);
   const previousPreset = useRef({ step, reset });
@@ -697,8 +725,9 @@ function Scene({ hour, northAngle, measurements, objects, architecture }: Omit<A
 }
 
 export default function ApartmentScene(props: ApartmentSceneProps) {
-  const storageKey = `dwellwise:3d-camera:${props.projectId}`;
-  const [savedCamera] = useState<CameraViewState | null>(() => readSessionCamera(storageKey));
+  const storageKey = cameraStorageKey(props.projectId);
+  const footprint = useMemo(() => cameraFootprint(props.architecture), [props.architecture]);
+  const [savedCamera] = useState<CameraViewState | null>(() => readSessionCamera(storageKey, footprint));
   const defaultCamera = getTopDownCamera(props.architecture, 0);
   const initialCamera = savedCamera ?? {
     position: defaultCamera.position.toArray(),
@@ -706,15 +735,16 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
   };
   const pendingCamera = useRef<CameraViewState | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const saveCamera = useCallback((state: CameraViewState) => {
-    pendingCamera.current = state;
+  const saveCamera = useCallback((state: CameraPose) => {
+    const savedState = { ...state, footprint };
+    pendingCamera.current = savedState;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      writeSessionCamera(storageKey, state);
+      writeSessionCamera(storageKey, savedState);
       pendingCamera.current = null;
       saveTimer.current = null;
     }, 120);
-  }, [storageKey]);
+  }, [footprint, storageKey]);
 
   useEffect(() => () => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
