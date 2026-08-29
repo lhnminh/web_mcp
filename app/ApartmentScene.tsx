@@ -44,9 +44,12 @@ type FinishSelection = {
 type FinishContextValue = {
   colors: Record<string, string>;
   select: (selection: FinishSelection) => void;
+  hoveredTargetKey: string | null;
+  setHoveredTargetKey: (targetKey: string | null | ((current: string | null) => string | null)) => void;
+  openFurniturePartPicker: (targetId: string) => void;
 };
 
-const FinishContext = createContext<FinishContextValue>({ colors: {}, select: () => undefined });
+const FinishContext = createContext<FinishContextValue>({ colors: {}, select: () => undefined, hoveredTargetKey: null, setHoveredTargetKey: () => undefined, openFurniturePartPicker: () => undefined });
 
 type CameraViewState = {
   position: [number, number, number];
@@ -200,7 +203,7 @@ function CameraController({ step, reset, architecture, initialState, onCameraCha
   );
 }
 
-function Box({ position, size, color, rotation, radius = 0.03, castShadow = true, onDoubleClick }: {
+function Box({ position, size, color, rotation, radius = 0.03, castShadow = true, onDoubleClick, onClick, onPointerOver, onPointerOut }: {
   position: [number, number, number];
   size: [number, number, number];
   color: string;
@@ -208,9 +211,12 @@ function Box({ position, size, color, rotation, radius = 0.03, castShadow = true
   radius?: number;
   castShadow?: boolean;
   onDoubleClick?: (event: ThreeEvent<MouseEvent>) => void;
+  onClick?: (event: ThreeEvent<MouseEvent>) => void;
+  onPointerOver?: (event: ThreeEvent<PointerEvent>) => void;
+  onPointerOut?: (event: ThreeEvent<PointerEvent>) => void;
 }) {
   return (
-    <RoundedBox position={position} args={size} rotation={rotation} radius={radius} smoothness={3} castShadow={castShadow} receiveShadow onDoubleClick={onDoubleClick}>
+    <RoundedBox position={position} args={size} rotation={rotation} radius={radius} smoothness={3} castShadow={castShadow} receiveShadow onDoubleClick={onDoubleClick} onClick={onClick} onPointerOver={onPointerOver} onPointerOut={onPointerOut}>
       <meshStandardMaterial color={color} roughness={0.72} />
     </RoundedBox>
   );
@@ -229,10 +235,19 @@ type FinishBoxProps = Omit<Parameters<typeof Box>[0], 'color' | 'onDoubleClick'>
 function FinishBox({ scope, targetId, owner, part, label, role, defaultColor, ...boxProps }: FinishBoxProps) {
   const finishes = useContext(FinishContext);
   const targetKey = materialKey(scope, targetId, part);
-  return <Box {...boxProps} color={finishes.colors[targetKey] ?? defaultColor} onDoubleClick={(event) => {
+  const hovered = finishes.hoveredTargetKey === targetKey;
+  const select = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
     finishes.select({ targetKey, owner, part: label, role, defaultColor });
-  }} />;
+  };
+  const showPicker = (event: ThreeEvent<MouseEvent>) => {
+    event.stopPropagation();
+    if (scope === 'furniture') finishes.openFurniturePartPicker(targetId);
+  };
+  return <>
+    <Box {...boxProps} color={finishes.colors[targetKey] ?? defaultColor} onClick={showPicker} onDoubleClick={select} onPointerOver={(event) => { event.stopPropagation(); finishes.setHoveredTargetKey(targetKey); }} onPointerOut={(event) => { event.stopPropagation(); finishes.setHoveredTargetKey((current) => current === targetKey ? null : current); }} />
+    {hovered && <RoundedBox position={boxProps.position} args={boxProps.size} rotation={boxProps.rotation} radius={(boxProps.radius ?? 0.03) + 0.008} smoothness={3} scale={[1.018, 1.018, 1.018]} renderOrder={2} raycast={() => null}><meshBasicMaterial color="#e8896d" wireframe transparent opacity={0.92} /></RoundedBox>}
+  </>;
 }
 
 function Wall({ wall, position, size, rotation }: { wall: WallElement; position: [number, number, number]; size: [number, number, number]; rotation?: [number, number, number] }) {
@@ -569,14 +584,22 @@ function CoffeeTable({ item, position }: { item: SceneObject; position: [number,
   const finishes = useContext(FinishContext);
   const topKey = materialKey('furniture', item.id, 'tabletop');
   const baseKey = materialKey('furniture', item.id, 'base');
+  const showPicker = (event: ThreeEvent<MouseEvent>) => { event.stopPropagation(); finishes.openFurniturePartPicker(item.id); };
+  const finishHandlers = (targetKey: string) => ({
+    onClick: showPicker,
+    onPointerOver: (event: ThreeEvent<PointerEvent>) => { event.stopPropagation(); finishes.setHoveredTargetKey(targetKey); },
+    onPointerOut: (event: ThreeEvent<PointerEvent>) => { event.stopPropagation(); finishes.setHoveredTargetKey((current) => current === targetKey ? null : current); },
+  });
   return (
     <group position={position}>
-      <mesh position={[0, 0.38, 0]} scale={[0.535, 0.045, 0.305]} castShadow receiveShadow onDoubleClick={(event) => { event.stopPropagation(); finishes.select({ targetKey: topKey, owner: item.name, part: 'Tabletop', role: 'wood', defaultColor: palette.darkWood }); }}>
+      <mesh position={[0, 0.38, 0]} scale={[0.535, 0.045, 0.305]} castShadow receiveShadow {...finishHandlers(topKey)} onDoubleClick={(event) => { event.stopPropagation(); finishes.select({ targetKey: topKey, owner: item.name, part: 'Tabletop', role: 'wood', defaultColor: palette.darkWood }); }}>
         <sphereGeometry args={[1, 36, 18]} />
         <meshStandardMaterial color={finishes.colors[topKey] ?? palette.darkWood} roughness={0.65} />
       </mesh>
+      {finishes.hoveredTargetKey === topKey && <mesh position={[0, 0.38, 0]} scale={[0.548, 0.049, 0.313]} raycast={() => null} renderOrder={2}><sphereGeometry args={[1, 36, 18]} /><meshBasicMaterial color="#e8896d" wireframe transparent opacity={0.92} /></mesh>}
       <mesh position={[0, 0.2, 0]} castShadow><cylinderGeometry args={[0.06, 0.14, 0.36, 18]} /><meshStandardMaterial color={palette.charcoal} roughness={0.6} /></mesh>
-      <mesh position={[0, 0.06, 0]} scale={[0.26, 0.035, 0.17]} castShadow receiveShadow onDoubleClick={(event) => { event.stopPropagation(); finishes.select({ targetKey: baseKey, owner: item.name, part: 'Base', role: 'metal', defaultColor: palette.brass }); }}><sphereGeometry args={[1, 24, 12]} /><meshStandardMaterial color={finishes.colors[baseKey] ?? palette.brass} metalness={0.42} roughness={0.38} /></mesh>
+      <mesh position={[0, 0.06, 0]} scale={[0.26, 0.035, 0.17]} castShadow receiveShadow {...finishHandlers(baseKey)} onDoubleClick={(event) => { event.stopPropagation(); finishes.select({ targetKey: baseKey, owner: item.name, part: 'Base', role: 'metal', defaultColor: palette.brass }); }}><sphereGeometry args={[1, 24, 12]} /><meshStandardMaterial color={finishes.colors[baseKey] ?? palette.brass} metalness={0.42} roughness={0.38} /></mesh>
+      {finishes.hoveredTargetKey === baseKey && <mesh position={[0, 0.06, 0]} scale={[0.267, 0.039, 0.177]} raycast={() => null} renderOrder={2}><sphereGeometry args={[1, 24, 12]} /><meshBasicMaterial color="#e8896d" wireframe transparent opacity={0.92} /></mesh>}
     </group>
   );
 }
@@ -784,6 +807,31 @@ function Scene({ hour, northAngle, measurements, objects, architecture }: Pick<A
 
 const finishPresets = ['#73877e', '#b98f68', '#c47e58', '#596f78', '#d8cdbb', '#765b45', '#9b6a88', '#4f7c78'];
 
+function finishOptionsForFurniture(item: SceneObject): FinishSelection[] {
+  const kind = getFurnitureKind(item.category, item.name);
+  const add = (part: string, label: string, role: MaterialRole, defaultColor: string): FinishSelection => ({ targetKey: materialKey('furniture', item.id, part), owner: item.name, part: label, role, defaultColor });
+  const options: Record<string, FinishSelection[]> = {
+    sofa: [add('base', 'Sofa base', 'textile', palette.sage), add('seat', 'Seat cushions', 'textile', '#879b91'), add('back', 'Back cushions', 'textile', '#687b73'), add('pillows', 'Pillows', 'textile', palette.sageLight), add('arms', 'Arms', 'textile', '#6b8177'), add('legs', 'Legs', 'wood', palette.darkWood)],
+    desk: [add('desktop', 'Desktop', 'wood', palette.wood), add('legs', 'Legs', 'metal', palette.charcoal), add('monitor', 'Monitor', 'metal', '#273230'), add('keyboard', 'Keyboard', 'surface', '#d7d1c3')],
+    coffee: [add('tabletop', 'Tabletop', 'wood', palette.darkWood), add('base', 'Base', 'metal', palette.brass)],
+    dining: [add('tabletop', 'Tabletop', 'wood', palette.wood), add('table-legs', 'Table legs', 'wood', palette.darkWood), add('chairs', 'Chairs', 'textile', palette.sage)],
+    bed: [add('base', 'Bed base', 'wood', palette.darkWood), add('mattress', 'Mattress', 'textile', palette.linen), add('headboard', 'Headboard', 'textile', palette.sage), add('pillows', 'Pillows', 'textile', palette.trim), add('blanket', 'Blanket', 'accent', '#ad7258')],
+    chair: [add('seat', 'Seat', 'textile', palette.rust), add('back', 'Back', 'textile', '#b56f50'), add('arms', 'Arms', 'textile', '#9f5f47')],
+    nightstand: [add('body', 'Body', 'wood', palette.wood), add('top', 'Top', 'wood', '#cfb998')],
+    bookcase: [add('back', 'Back', 'wood', palette.darkWood), add('frame', 'Frame', 'wood', palette.wood), add('shelves', 'Shelves', 'wood', '#b58b65')],
+    storage: [add('body', 'Dresser body', 'wood', palette.wood), add('top', 'Dresser top', 'wood', '#c8b08f'), add('drawers', 'Drawer fronts', 'wood', palette.wood)],
+  };
+  return options[kind] ?? [add('body', 'Body', 'surface', palette.sage)];
+}
+
+function FinishPartPicker({ owner, options, onSelect, onClose }: { owner: string; options: FinishSelection[]; onSelect: (option: FinishSelection) => void; onClose: () => void }) {
+  return <aside className="finish-part-picker" aria-label={`Choose a part of ${owner} to recolor`}>
+    <div className="finish-part-picker-heading"><div><span>3D FINISH STUDIO</span><strong>{owner}</strong></div><button type="button" onClick={onClose} aria-label="Close part picker">×</button></div>
+    <p>Choose the exact furniture surface to recolor.</p>
+    <div className="finish-part-options">{options.map((option) => <button type="button" key={option.targetKey} onClick={() => onSelect(option)}>{option.part}</button>)}</div>
+  </aside>;
+}
+
 function FinishPanel({ selection, rawColor, mood, previewColor, dirty, saving, message, onRawColor, onMood, onApply, onReset, onClose }: {
   selection: FinishSelection;
   rawColor: string;
@@ -828,15 +876,22 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
   const [finishDirty, setFinishDirty] = useState(false);
   const [savingFinish, setSavingFinish] = useState(false);
   const [finishMessage, setFinishMessage] = useState('');
+  const [hoveredTargetKey, setHoveredTargetKey] = useState<string | null>(null);
+  const [partPicker, setPartPicker] = useState<{ owner: string; options: FinishSelection[] } | null>(null);
   const previewColor = selection && finishDirty ? harmonizeColor(rawColor, selection.role, mood) : rawColor;
   const displayedColors = useMemo(() => selection ? { ...props.materialOverrides, [selection.targetKey]: previewColor } : props.materialOverrides, [previewColor, props.materialOverrides, selection]);
   const selectFinish = useCallback((next: FinishSelection) => {
+    setPartPicker(null);
     setSelection(next);
     setRawColor(props.materialOverrides[next.targetKey] ?? next.defaultColor);
     setMood('balanced');
     setFinishDirty(false);
     setFinishMessage('Choose a color or finish character to preview');
   }, [props.materialOverrides]);
+  const openFurniturePartPicker = useCallback((targetId: string) => {
+    const item = props.objects.find((candidate) => candidate.id === targetId);
+    if (item) setPartPicker({ owner: item.name, options: finishOptionsForFurniture(item) });
+  }, [props.objects]);
   const saveCamera = useCallback((state: CameraPose) => {
     const savedState = { ...state, footprint };
     pendingCamera.current = savedState;
@@ -855,11 +910,12 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
 
   return (
     <div className="three-canvas" role="region" aria-label="Interactive three-dimensional apartment model. Drag to orbit, scroll to zoom, right-drag to pan, or double-click a surface to change its finish.">
-      <FinishContext.Provider value={{ colors: displayedColors, select: selectFinish }}><Canvas
+      <FinishContext.Provider value={{ colors: displayedColors, select: selectFinish, hoveredTargetKey, setHoveredTargetKey, openFurniturePartPicker }}><Canvas
         shadows
         dpr={[1, 1.75]}
         camera={{ position: initialCamera.position, fov: 42, near: 0.1, far: 100 }}
         gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+        onPointerMissed={() => { setHoveredTargetKey(null); setPartPicker(null); }}
         onCreated={({ camera, gl }) => {
           camera.lookAt(new THREE.Vector3(...initialCamera.target));
           gl.toneMapping = THREE.ACESFilmicToneMapping;
@@ -877,6 +933,7 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
         />
         <CameraController step={props.cameraStep} reset={props.cameraReset} architecture={props.architecture} initialState={savedCamera} onCameraChange={saveCamera} />
       </Canvas></FinishContext.Provider>
+      {partPicker && !selection && <FinishPartPicker owner={partPicker.owner} options={partPicker.options} onSelect={selectFinish} onClose={() => setPartPicker(null)} />}
       {selection && <FinishPanel selection={selection} rawColor={rawColor} mood={mood} previewColor={previewColor} dirty={finishDirty} saving={savingFinish} message={finishMessage} onRawColor={(color) => { setRawColor(color); setFinishDirty(true); setFinishMessage('Previewing live · apply to save'); }} onMood={(nextMood) => { setMood(nextMood); setFinishDirty(true); setFinishMessage('Previewing live · apply to save'); }} onApply={() => {
         setSavingFinish(true);
         setFinishMessage('Saving finish…');

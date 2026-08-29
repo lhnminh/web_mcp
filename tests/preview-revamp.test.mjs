@@ -51,6 +51,16 @@ test('3D mode exposes the shared undo and redo history without plan zoom control
   assert.equal(/aria-label="3D edit history"[\s\S]*Zoom out/.test(editor), false);
 });
 
+test('3D finish targeting highlights surfaces and offers a furniture part picker', () => {
+  assert.match(scene, /onPointerOver=\{\(event\) => \{ event\.stopPropagation\(\); finishes\.setHoveredTargetKey\(targetKey\); \}\}/);
+  assert.match(scene, /onPointerOut=\{\(event\) => \{ event\.stopPropagation\(\); finishes\.setHoveredTargetKey\(\(current\) => current === targetKey \? null : current\); \}\}/);
+  assert.match(scene, /if \(scope === 'furniture'\) finishes\.openFurniturePartPicker\(targetId\)/);
+  assert.match(scene, /function FinishPartPicker/);
+  assert.match(scene, /function finishOptionsForFurniture/);
+  assert.match(scene, /onPointerMissed=\{\(\) => \{ setHoveredTargetKey\(null\); setPartPicker\(null\); \}\}/);
+  assert.match(styles, /\.three-canvas>\.finish-part-picker/);
+});
+
 test('resetting or resizing an apartment cannot restore stale 3D camera framing', () => {
   assert.match(scene, /footprint: \{ width: number; depth: number \}/);
   assert.match(scene, /Math\.abs\(savedFootprint\.width - footprint\.width\) < 0\.01/);
