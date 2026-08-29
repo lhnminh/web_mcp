@@ -453,11 +453,10 @@ function Desk({ position, rotation = 0 }: { position: [number, number, number]; 
     <group position={position} rotation={[0, rotation, 0]}>
       <Box position={[0, 0.76, 0]} size={[1.22, 0.09, 0.61]} color={palette.wood} radius={0.025} />
       {[-0.49, 0.49].flatMap((x) => [-0.22, 0.22].map((z) => <Box key={`${x}-${z}`} position={[x, 0.38, z]} size={[0.055, 0.72, 0.055]} color={palette.charcoal} />))}
-      <Box position={[0.12, 1.08, -0.05]} size={[0.55, 0.34, 0.045]} color="#273230" radius={0.025} />
-      <Box position={[0.12, 1.08, -0.024]} size={[0.48, 0.27, 0.014]} color="#6fa0aa" radius={0.012} castShadow={false} />
-      <Box position={[0.12, 0.89, -0.05]} size={[0.045, 0.18, 0.045]} color={palette.charcoal} />
-      <Box position={[0.12, 0.825, 0.12]} size={[0.42, 0.025, 0.16]} color="#d7d1c3" radius={0.015} />
-      <Box position={[-0.4, 0.91, 0.02]} size={[0.12, 0.22, 0.12]} color={palette.trim} radius={0.04} />
+      <Box position={[0, 1.08, -0.05]} size={[0.55, 0.34, 0.045]} color="#273230" radius={0.025} />
+      <Box position={[0, 1.08, -0.024]} size={[0.48, 0.27, 0.014]} color="#6fa0aa" radius={0.012} castShadow={false} />
+      <Box position={[0, 0.89, -0.05]} size={[0.045, 0.18, 0.045]} color={palette.charcoal} />
+      <Box position={[0, 0.825, 0.12]} size={[0.42, 0.025, 0.16]} color="#d7d1c3" radius={0.015} />
     </group>
   );
 }
@@ -487,7 +486,7 @@ function DiningSet({ position, rotation = 0 }: { position: [number, number, numb
 function Bed({ position, rotation = 0 }: { position: [number, number, number]; rotation?: number }) {
   return (
     <group position={position} rotation={[0, rotation, 0]}>
-      <Box position={[0, 0.26, 0]} size={[1.52, 0.34, 2.03]} color={palette.darkWood} radius={0.08} />
+      <Box position={[0, 0.3, 0]} size={[1.52, 0.5, 2.03]} color={palette.darkWood} radius={0.08} />
       <Box position={[0, 0.5, 0]} size={[1.44, 0.26, 1.92]} color={palette.linen} radius={0.1} />
       <Box position={[0, 0.82, -0.93]} size={[1.52, 0.95, 0.12]} color={palette.sage} radius={0.08} />
       <Box position={[-0.38, 0.71, -0.65]} size={[0.58, 0.16, 0.43]} color={palette.trim} radius={0.09} />
@@ -502,8 +501,8 @@ function Dresser({ position, rotation = 0 }: { position: [number, number, number
     <group position={position} rotation={[0, rotation, 0]}>
       <Box position={[0, 0.47, 0]} size={[1.52, 0.84, 0.51]} color={palette.wood} radius={0.04} />
       <Box position={[0, 0.91, -0.01]} size={[1.52, 0.07, 0.51]} color="#c8b08f" radius={0.025} />
-      {[-0.23, 0.05, 0.33].map((y) => <Box key={y} position={[0, 0.47 + y, 0.263]} size={[1.38, 0.02, 0.018]} color={palette.darkWood} radius={0.005} />)}
-      {[-0.36, 0.36].map((x) => <mesh key={x} position={[x, 0.52, 0.285]} castShadow><sphereGeometry args={[0.035, 12, 12]} /><meshStandardMaterial color={palette.brass} metalness={0.45} roughness={0.3} /></mesh>)}
+      {[0.25, 0.5, 0.75].flatMap((y) => [-0.36, 0.36].map((x) => <Box key={`${x}-${y}-drawer`} position={[x, y, 0.264]} size={[0.65, 0.2, 0.022]} color={palette.wood} radius={0.018} />))}
+      {[0.25, 0.5, 0.75].flatMap((y) => [-0.36, 0.36].map((x) => <mesh key={`${x}-${y}-knob`} position={[x, y, 0.292]} castShadow><sphereGeometry args={[0.035, 12, 12]} /><meshStandardMaterial color={palette.brass} metalness={0.45} roughness={0.3} /></mesh>))}
       {[-0.62, 0.62].map((x) => <Box key={`${x}-foot`} position={[x, 0.08, 0]} size={[0.08, 0.16, 0.08]} color={palette.darkWood} radius={0.02} />)}
     </group>
   );
@@ -527,7 +526,6 @@ function AccentChair({ position }: { position: [number, number, number] }) {
     <group position={position}>
       <Box position={[0, 0.43, 0.04]} size={[0.68, 0.2, 0.68]} color={palette.rust} radius={0.13} />
       <Box position={[0, 0.72, -0.27]} size={[0.68, 0.52, 0.16]} color="#b56f50" radius={0.12} rotation={[-0.09, 0, 0]} />
-      <Box position={[0, 0.54, 0.03]} size={[0.56, 0.12, 0.54]} color="#d09776" radius={0.1} />
       {[-0.32, 0.32].map((x) => <Box key={`${x}-arm`} position={[x, 0.58, 0]} size={[0.08, 0.28, 0.58]} color="#9f5f47" radius={0.045} />)}
       {[-0.25, 0.25].flatMap((x) => [-0.23, 0.23].map((z) => <Box key={`${x}-${z}`} position={[x, 0.18, z]} size={[0.055, 0.36, 0.055]} color={palette.darkWood} radius={0.018} rotation={[z > 0 ? 0.06 : -0.06, 0, x > 0 ? -0.05 : 0.05]} />))}
     </group>

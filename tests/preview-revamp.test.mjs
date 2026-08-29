@@ -236,6 +236,14 @@ test('requested 3D furniture cleanup keeps the earlier bed and clear dining tabl
   assert.match(scene, /position=\{\[-0\.46, 0\.81, -0\.15\]\} size=\{\[0\.87, 0\.32, 0\.18\]\}/);
 });
 
+test('3D furniture details keep the dresser, chair, desk, and bed visually coherent', () => {
+  assert.match(scene, /\[0\.25, 0\.5, 0\.75\]\.flatMap\(\(y\) => \[-0\.36, 0\.36\]\.map\(\(x\) => <mesh key=\{`\$\{x\}-\$\{y\}-knob`\}/);
+  assert.equal(scene.includes('color="#d09776"'), false, 'accent chair should not have a contrasting seat cushion');
+  assert.equal(scene.includes('position={[-0.4, 0.91, 0.02]}'), false, 'desk cup should be removed');
+  assert.match(scene, /position=\{\[0, 1\.08, -0\.05\]\}[\s\S]*position=\{\[0, 0\.825, 0\.12\]\}/);
+  assert.match(scene, /position=\{\[0, 0\.3, 0\]\} size=\{\[1\.52, 0\.5, 2\.03\]\}/);
+});
+
 test('dining and bookcase plan symbols fill their exact 2D footprints clearly', () => {
   assert.match(editor, /kind === 'dining'[\s\S]*rx="35" ry="33"/);
   assert.match(editor, /kind === 'bookcase'[\s\S]*x="2" y="2" width="96" height="96"/);
