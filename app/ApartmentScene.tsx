@@ -1,9 +1,10 @@
 'use client';
 
 import { ContactShadows, Html, Line, OrbitControls, RoundedBox } from '@react-three/drei';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Canvas, type ThreeEvent, useFrame, useThree } from '@react-three/fiber';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ArchitecturalElement, OpeningElement, RoomElement, WallElement } from '@/lib/domain/scene';
+import { harmonizeColor, materialKey, type FinishMood, type MaterialRole } from '@/lib/domain/materials';
 import { getArchitectureBounds, wallLength } from '@/lib/domain/architecture';
 import { getSunDirection } from '@/lib/domain/sunlight';
 import { getFurnitureKind } from '@/lib/domain/furniture';
@@ -28,7 +29,24 @@ type ApartmentSceneProps = {
   measurements: boolean;
   objects: SceneObject[];
   architecture: ArchitecturalElement[];
+  materialOverrides: Record<string, string>;
+  onMaterialChange: (targetKey: string, color: string | null) => Promise<string | null>;
 };
+
+type FinishSelection = {
+  targetKey: string;
+  owner: string;
+  part: string;
+  role: MaterialRole;
+  defaultColor: string;
+};
+
+type FinishContextValue = {
+  colors: Record<string, string>;
+  select: (selection: FinishSelection) => void;
+};
+
+const FinishContext = createContext<FinishContextValue>({ colors: {}, select: () => undefined });
 
 type CameraViewState = {
   position: [number, number, number];
@@ -182,23 +200,43 @@ function CameraController({ step, reset, architecture, initialState, onCameraCha
   );
 }
 
-function Box({ position, size, color, rotation, radius = 0.03, castShadow = true }: {
+function Box({ position, size, color, rotation, radius = 0.03, castShadow = true, onDoubleClick }: {
   position: [number, number, number];
   size: [number, number, number];
   color: string;
   rotation?: [number, number, number];
   radius?: number;
   castShadow?: boolean;
+  onDoubleClick?: (event: ThreeEvent<MouseEvent>) => void;
 }) {
   return (
-    <RoundedBox position={position} args={size} rotation={rotation} radius={radius} smoothness={3} castShadow={castShadow} receiveShadow>
+    <RoundedBox position={position} args={size} rotation={rotation} radius={radius} smoothness={3} castShadow={castShadow} receiveShadow onDoubleClick={onDoubleClick}>
       <meshStandardMaterial color={color} roughness={0.72} />
     </RoundedBox>
   );
 }
 
-function Wall({ position, size, rotation }: { position: [number, number, number]; size: [number, number, number]; rotation?: [number, number, number] }) {
-  return <Box position={position} size={size} rotation={rotation} color={palette.wall} radius={0.015} />;
+type FinishBoxProps = Omit<Parameters<typeof Box>[0], 'color' | 'onDoubleClick'> & {
+  scope: 'furniture' | 'room' | 'wall' | 'opening';
+  targetId: string;
+  owner: string;
+  part: string;
+  label: string;
+  role: MaterialRole;
+  defaultColor: string;
+};
+
+function FinishBox({ scope, targetId, owner, part, label, role, defaultColor, ...boxProps }: FinishBoxProps) {
+  const finishes = useContext(FinishContext);
+  const targetKey = materialKey(scope, targetId, part);
+  return <Box {...boxProps} color={finishes.colors[targetKey] ?? defaultColor} onDoubleClick={(event) => {
+    event.stopPropagation();
+    finishes.select({ targetKey, owner, part: label, role, defaultColor });
+  }} />;
+}
+
+function Wall({ wall, position, size, rotation }: { wall: WallElement; position: [number, number, number]; size: [number, number, number]; rotation?: [number, number, number] }) {
+  return <FinishBox scope="wall" targetId={wall.id} owner="Wall" part="surface" label="Wall surface" role="wall" defaultColor={palette.wall} position={position} size={size} rotation={rotation} radius={0.015} />;
 }
 
 function WindowInsert({ opening, wall, angle, center }: { opening: OpeningElement; wall: WallElement; angle: number; center: { x: number; y: number } }) {
@@ -208,10 +246,10 @@ function WindowInsert({ opening, wall, angle, center }: { opening: OpeningElemen
   const depth = wall.thickness + 0.035;
   return (
     <group position={[center.x, opening.sillHeight + opening.height / 2, center.y]} rotation={[0, -angle, 0]}>
-      <Box position={[-opening.width / 2 + frame / 2, 0, 0]} size={[frame, opening.height, depth]} color={palette.trim} radius={0.008} />
-      <Box position={[opening.width / 2 - frame / 2, 0, 0]} size={[frame, opening.height, depth]} color={palette.trim} radius={0.008} />
-      <Box position={[0, opening.height / 2 - frame / 2, 0]} size={[innerWidth, frame, depth]} color={palette.trim} radius={0.008} />
-      <Box position={[0, -opening.height / 2 + frame / 2, 0]} size={[innerWidth, frame, depth]} color={palette.trim} radius={0.008} />
+      <FinishBox scope="opening" targetId={opening.id} owner="Window" part="frame" label="Window frame" role="surface" defaultColor={palette.trim} position={[-opening.width / 2 + frame / 2, 0, 0]} size={[frame, opening.height, depth]} radius={0.008} />
+      <FinishBox scope="opening" targetId={opening.id} owner="Window" part="frame" label="Window frame" role="surface" defaultColor={palette.trim} position={[opening.width / 2 - frame / 2, 0, 0]} size={[frame, opening.height, depth]} radius={0.008} />
+      <FinishBox scope="opening" targetId={opening.id} owner="Window" part="frame" label="Window frame" role="surface" defaultColor={palette.trim} position={[0, opening.height / 2 - frame / 2, 0]} size={[innerWidth, frame, depth]} radius={0.008} />
+      <FinishBox scope="opening" targetId={opening.id} owner="Window" part="frame" label="Window frame" role="surface" defaultColor={palette.trim} position={[0, -opening.height / 2 + frame / 2, 0]} size={[innerWidth, frame, depth]} radius={0.008} />
       {innerWidth > 0.35 && <Box position={[0, 0, 0.018]} size={[Math.min(0.038, frame * 0.65), innerHeight, depth * 0.72]} color="#dce4df" radius={0.005} />}
       {innerHeight > 0.48 && <Box position={[0, 0, 0.02]} size={[innerWidth, Math.min(0.034, frame * 0.6), depth * 0.72]} color="#dce4df" radius={0.005} />}
       <Box position={[0, -opening.height / 2 - 0.035, 0.035]} size={[opening.width + 0.1, 0.055, wall.thickness + 0.15]} color="#e8e2d5" radius={0.012} />
@@ -234,8 +272,8 @@ function DoorInsert({ opening, wall, angle, center }: { opening: OpeningElement;
       <Box position={[-opening.width / 2 + frame / 2, 0, 0]} size={[frame, opening.height, depth]} color={palette.trim} radius={0.008} />
       <Box position={[opening.width / 2 - frame / 2, 0, 0]} size={[frame, opening.height, depth]} color={palette.trim} radius={0.008} />
       <Box position={[0, opening.height / 2 - frame / 2, 0]} size={[leafWidth, frame, depth]} color={palette.trim} radius={0.008} />
-      <Box position={[0, -frame / 2, 0]} size={[leafWidth, leafHeight, 0.055]} color="#a97855" radius={0.018} />
-      {[-0.27, 0.27].map((y) => <Box key={y} position={[0, y * leafHeight, 0.034]} size={[leafWidth * 0.74, leafHeight * 0.34, 0.024]} color="#b98a65" radius={0.02} />)}
+      <FinishBox scope="opening" targetId={opening.id} owner="Door" part="panel" label="Door panel" role="wood" defaultColor="#a97855" position={[0, -frame / 2, 0]} size={[leafWidth, leafHeight, 0.055]} radius={0.018} />
+      {[-0.27, 0.27].map((y) => <FinishBox key={y} scope="opening" targetId={opening.id} owner="Door" part="panel" label="Door panel" role="wood" defaultColor="#a97855" position={[0, y * leafHeight, 0.034]} size={[leafWidth * 0.74, leafHeight * 0.34, 0.024]} radius={0.02} />)}
       <mesh position={[handleX, -0.02, 0.075]} castShadow>
         <sphereGeometry args={[0.045, 18, 12]} />
         <meshStandardMaterial color={palette.brass} metalness={0.78} roughness={0.2} />
@@ -256,7 +294,13 @@ function RoomFloor({ room, index }: { room: RoomElement; index: number }) {
     return new THREE.ShapeGeometry(shape);
   }, [room]);
   const colors = ['#c5aa86', '#d2bfa6', '#bda582', '#cfbda4'];
-  return <mesh geometry={geometry} position={[0, room.floorElevation + 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow><meshStandardMaterial color={colors[index % colors.length]} roughness={0.84} side={THREE.DoubleSide} /></mesh>;
+  const finishes = useContext(FinishContext);
+  const targetKey = materialKey('room', room.id, 'floor');
+  const defaultColor = colors[index % colors.length];
+  return <mesh geometry={geometry} position={[0, room.floorElevation + 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow onDoubleClick={(event) => {
+    event.stopPropagation();
+    finishes.select({ targetKey, owner: room.name, part: 'Floor', role: 'floor', defaultColor });
+  }}><meshStandardMaterial color={finishes.colors[targetKey] ?? defaultColor} roughness={0.84} side={THREE.DoubleSide} /></mesh>;
 }
 
 function RoomCeilingShadow({ room }: { room: RoomElement }) {
@@ -377,7 +421,7 @@ function SceneWall({ wall, openings, fallbackTarget }: { wall: WallElement; open
   const part = (key: string, offset: number, width: number, bottom: number, height: number) => {
     if (width < 0.01 || height < 0.01) return null;
     const center = pointAt(offset + width / 2);
-    return <Wall key={key} position={[center.x, bottom + height / 2, center.y]} size={[width, height, wall.thickness]} rotation={[0, -angle, 0]} />;
+    return <Wall key={key} wall={wall} position={[center.x, bottom + height / 2, center.y]} size={[width, height, wall.thickness]} rotation={[0, -angle, 0]} />;
   };
   const sorted = openings
     .filter((opening) => opening.offset >= 0 && opening.offset + opening.width <= length + 0.001)
@@ -449,35 +493,33 @@ function Architecture({ measurements, architecture }: { measurements: boolean; a
   );
 }
 
-function Sofa({ position, rotation = 0 }: { position: [number, number, number]; rotation?: number }) {
+function Sofa({ item, position, rotation = 0 }: { item: SceneObject; position: [number, number, number]; rotation?: number }) {
   return (
     <group position={position} rotation={[0, rotation, 0]}>
-      <Box position={[0, 0.28, 0]} size={[2.18, 0.34, 0.91]} color={palette.sage} radius={0.12} />
-      <Box position={[-0.46, 0.55, 0.08]} size={[0.87, 0.2, 0.62]} color="#879b91" radius={0.07} />
-      <Box position={[0.46, 0.55, 0.08]} size={[0.87, 0.2, 0.62]} color="#879b91" radius={0.07} />
-      <Box position={[0, 0.73, -0.35]} size={[2.18, 0.54, 0.18]} color="#687b73" radius={0.1} />
-      <Box position={[-0.46, 0.81, -0.15]} size={[0.87, 0.32, 0.18]} color={palette.sageLight} radius={0.08} />
-      <Box position={[0.46, 0.81, -0.15]} size={[0.87, 0.32, 0.18]} color={palette.sageLight} radius={0.08} />
-      {[-0.99, 0.99].map((x) => <Box key={`${x}-arm`} position={[x, 0.51, 0.02]} size={[0.16, 0.42, 0.74]} color="#6b8177" radius={0.08} />)}
-      {[-0.87, 0.87].map((x) => <Box key={x} position={[x, 0.1, 0.3]} size={[0.08, 0.2, 0.08]} color={palette.darkWood} />)}
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="base" label="Base" role="textile" defaultColor={palette.sage} position={[0, 0.28, 0]} size={[2.18, 0.34, 0.91]} radius={0.12} />
+      {[-0.46, 0.46].map((x) => <FinishBox key={`${x}-seat`} scope="furniture" targetId={item.id} owner={item.name} part="seat" label="Seat cushions" role="textile" defaultColor="#879b91" position={[x, 0.55, 0.08]} size={[0.87, 0.2, 0.62]} radius={0.07} />)}
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="back" label="Back" role="textile" defaultColor="#687b73" position={[0, 0.73, -0.35]} size={[2.18, 0.54, 0.18]} radius={0.1} />
+      {[-0.46, 0.46].map((x) => <FinishBox key={`${x}-pillow`} scope="furniture" targetId={item.id} owner={item.name} part="pillows" label="Back cushions" role="textile" defaultColor={palette.sageLight} position={[x, 0.81, -0.15]} size={[0.87, 0.32, 0.18]} radius={0.08} />)}
+      {[-0.99, 0.99].map((x) => <FinishBox key={`${x}-arm`} scope="furniture" targetId={item.id} owner={item.name} part="arms" label="Arms" role="textile" defaultColor="#6b8177" position={[x, 0.51, 0.02]} size={[0.16, 0.42, 0.74]} radius={0.08} />)}
+      {[-0.87, 0.87].map((x) => <FinishBox key={x} scope="furniture" targetId={item.id} owner={item.name} part="legs" label="Legs" role="wood" defaultColor={palette.darkWood} position={[x, 0.1, 0.3]} size={[0.08, 0.2, 0.08]} />)}
     </group>
   );
 }
 
-function Desk({ position, rotation = 0 }: { position: [number, number, number]; rotation?: number }) {
+function Desk({ item, position, rotation = 0 }: { item: SceneObject; position: [number, number, number]; rotation?: number }) {
   return (
     <group position={position} rotation={[0, rotation, 0]}>
-      <Box position={[0, 0.76, 0]} size={[1.22, 0.09, 0.61]} color={palette.wood} radius={0.025} />
-      {[-0.49, 0.49].flatMap((x) => [-0.22, 0.22].map((z) => <Box key={`${x}-${z}`} position={[x, 0.38, z]} size={[0.055, 0.72, 0.055]} color={palette.charcoal} />))}
-      <Box position={[0, 1.08, -0.05]} size={[0.55, 0.34, 0.045]} color="#273230" radius={0.025} />
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="desktop" label="Desktop" role="wood" defaultColor={palette.wood} position={[0, 0.76, 0]} size={[1.22, 0.09, 0.61]} radius={0.025} />
+      {[-0.49, 0.49].flatMap((x) => [-0.22, 0.22].map((z) => <FinishBox key={`${x}-${z}`} scope="furniture" targetId={item.id} owner={item.name} part="legs" label="Legs" role="metal" defaultColor={palette.charcoal} position={[x, 0.38, z]} size={[0.055, 0.72, 0.055]} />))}
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="monitor" label="Monitor" role="metal" defaultColor="#273230" position={[0, 1.08, -0.05]} size={[0.55, 0.34, 0.045]} radius={0.025} />
       <Box position={[0, 1.08, -0.024]} size={[0.48, 0.27, 0.014]} color="#6fa0aa" radius={0.012} castShadow={false} />
       <Box position={[0, 0.89, -0.05]} size={[0.045, 0.18, 0.045]} color={palette.charcoal} />
-      <Box position={[0, 0.825, 0.12]} size={[0.42, 0.025, 0.16]} color="#d7d1c3" radius={0.015} />
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="keyboard" label="Keyboard" role="surface" defaultColor="#d7d1c3" position={[0, 0.825, 0.12]} size={[0.42, 0.025, 0.16]} radius={0.015} />
     </group>
   );
 }
 
-function DiningSet({ position, rotation = 0 }: { position: [number, number, number]; rotation?: number }) {
+function DiningSet({ item, position, rotation = 0 }: { item: SceneObject; position: [number, number, number]; rotation?: number }) {
   const chairs = [
     { position: [-0.485, 0, 0] as [number, number, number], rotation: Math.PI / 2 },
     { position: [0.485, 0, 0] as [number, number, number], rotation: -Math.PI / 2 },
@@ -486,12 +528,12 @@ function DiningSet({ position, rotation = 0 }: { position: [number, number, numb
   ];
   return (
     <group position={position} rotation={[0, rotation, 0]}>
-      <Box position={[0, 0.72, 0]} size={[0.72, 0.08, 0.5]} color={palette.wood} radius={0.07} />
-      {[-0.27, 0.27].flatMap((x) => [-0.16, 0.16].map((z) => <Box key={`${x}-${z}`} position={[x, 0.35, z]} size={[0.05, 0.7, 0.05]} color={palette.darkWood} radius={0.015} />))}
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="tabletop" label="Tabletop" role="wood" defaultColor={palette.wood} position={[0, 0.72, 0]} size={[0.72, 0.08, 0.5]} radius={0.07} />
+      {[-0.27, 0.27].flatMap((x) => [-0.16, 0.16].map((z) => <FinishBox key={`${x}-${z}`} scope="furniture" targetId={item.id} owner={item.name} part="table-legs" label="Table legs" role="wood" defaultColor={palette.darkWood} position={[x, 0.35, z]} size={[0.05, 0.7, 0.05]} radius={0.015} />))}
       {chairs.map((chair, index) => (
         <group key={index} position={chair.position} rotation={[0, chair.rotation, 0]}>
-          <Box position={[0, 0.42, 0]} size={[0.27, 0.075, 0.25]} color={palette.sage} radius={0.045} />
-          <Box position={[0, 0.63, -0.095]} size={[0.27, 0.34, 0.055]} color={palette.sage} radius={0.045} />
+          <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="chairs" label="Chairs" role="surface" defaultColor={palette.sage} position={[0, 0.42, 0]} size={[0.27, 0.075, 0.25]} radius={0.045} />
+          <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="chairs" label="Chairs" role="surface" defaultColor={palette.sage} position={[0, 0.63, -0.095]} size={[0.27, 0.34, 0.055]} radius={0.045} />
           {[-0.09, 0.09].flatMap((legX) => [-0.075, 0.075].map((legZ) => <Box key={`${legX}-${legZ}`} position={[legX, 0.2, legZ]} size={[0.032, 0.4, 0.032]} color={palette.charcoal} radius={0.01} />))}
         </group>
       ))}
@@ -499,60 +541,62 @@ function DiningSet({ position, rotation = 0 }: { position: [number, number, numb
   );
 }
 
-function Bed({ position, rotation = 0 }: { position: [number, number, number]; rotation?: number }) {
+function Bed({ item, position, rotation = 0 }: { item: SceneObject; position: [number, number, number]; rotation?: number }) {
   return (
     <group position={position} rotation={[0, rotation, 0]}>
-      <Box position={[0, 0.325, 0]} size={[1.52, 0.65, 2.03]} color={palette.darkWood} radius={0.08} />
-      <Box position={[0, 0.76, 0]} size={[1.44, 0.22, 1.92]} color={palette.linen} radius={0.1} />
-      <Box position={[0, 0.9725, -0.93]} size={[1.52, 0.645, 0.12]} color={palette.sage} radius={0.08} />
-      <Box position={[-0.38, 0.91, -0.65]} size={[0.58, 0.16, 0.43]} color={palette.trim} radius={0.09} />
-      <Box position={[0.38, 0.91, -0.65]} size={[0.58, 0.16, 0.43]} color={palette.trim} radius={0.09} />
-      <Box position={[0, 0.88, 0.3]} size={[1.43, 0.06, 0.8]} color="#ad7258" radius={0.03} />
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="base" label="Bed base" role="wood" defaultColor={palette.darkWood} position={[0, 0.325, 0]} size={[1.52, 0.65, 2.03]} radius={0.08} />
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="mattress" label="Mattress" role="textile" defaultColor={palette.linen} position={[0, 0.76, 0]} size={[1.44, 0.22, 1.92]} radius={0.1} />
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="headboard" label="Headboard" role="textile" defaultColor={palette.sage} position={[0, 0.9725, -0.93]} size={[1.52, 0.645, 0.12]} radius={0.08} />
+      {[-0.38, 0.38].map((x) => <FinishBox key={x} scope="furniture" targetId={item.id} owner={item.name} part="pillows" label="Pillows" role="textile" defaultColor={palette.trim} position={[x, 0.91, -0.65]} size={[0.58, 0.16, 0.43]} radius={0.09} />)}
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="blanket" label="Blanket" role="accent" defaultColor="#ad7258" position={[0, 0.88, 0.3]} size={[1.43, 0.06, 0.8]} radius={0.03} />
     </group>
   );
 }
 
-function Dresser({ position, rotation = 0 }: { position: [number, number, number]; rotation?: number }) {
+function Dresser({ item, position, rotation = 0 }: { item: SceneObject; position: [number, number, number]; rotation?: number }) {
   return (
     <group position={position} rotation={[0, rotation, 0]}>
-      <Box position={[0, 0.47, 0]} size={[1.52, 0.84, 0.42]} color={palette.wood} radius={0.04} />
-      <Box position={[0, 0.91, 0]} size={[1.52, 0.07, 0.51]} color="#c8b08f" radius={0.025} />
-      {[0.25, 0.5, 0.75].flatMap((y) => [-0.36, 0.36].map((x) => <Box key={`${x}-${y}-drawer`} position={[x, y, 0.218]} size={[0.65, 0.2, 0.018]} color={palette.wood} radius={0.018} />))}
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="body" label="Dresser body" role="wood" defaultColor={palette.wood} position={[0, 0.47, 0]} size={[1.52, 0.84, 0.42]} radius={0.04} />
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="top" label="Dresser top" role="wood" defaultColor="#c8b08f" position={[0, 0.91, 0]} size={[1.52, 0.07, 0.51]} radius={0.025} />
+      {[0.25, 0.5, 0.75].flatMap((y) => [-0.36, 0.36].map((x) => <FinishBox key={`${x}-${y}-drawer`} scope="furniture" targetId={item.id} owner={item.name} part="drawers" label="Drawer fronts" role="wood" defaultColor={palette.wood} position={[x, y, 0.218]} size={[0.65, 0.2, 0.018]} radius={0.018} />))}
       {[0.25, 0.5, 0.75].flatMap((y) => [-0.36, 0.36].map((x) => <mesh key={`${x}-${y}-knob`} position={[x, y, 0.235]} castShadow><sphereGeometry args={[0.018, 12, 12]} /><meshStandardMaterial color={palette.brass} metalness={0.45} roughness={0.3} /></mesh>))}
       {[-0.62, 0.62].map((x) => <Box key={`${x}-foot`} position={[x, 0.08, 0]} size={[0.08, 0.16, 0.08]} color={palette.darkWood} radius={0.02} />)}
     </group>
   );
 }
 
-function CoffeeTable({ position }: { position: [number, number, number] }) {
+function CoffeeTable({ item, position }: { item: SceneObject; position: [number, number, number] }) {
+  const finishes = useContext(FinishContext);
+  const topKey = materialKey('furniture', item.id, 'tabletop');
+  const baseKey = materialKey('furniture', item.id, 'base');
   return (
     <group position={position}>
-      <mesh position={[0, 0.38, 0]} scale={[0.535, 0.045, 0.305]} castShadow receiveShadow>
+      <mesh position={[0, 0.38, 0]} scale={[0.535, 0.045, 0.305]} castShadow receiveShadow onDoubleClick={(event) => { event.stopPropagation(); finishes.select({ targetKey: topKey, owner: item.name, part: 'Tabletop', role: 'wood', defaultColor: palette.darkWood }); }}>
         <sphereGeometry args={[1, 36, 18]} />
-        <meshStandardMaterial color={palette.darkWood} roughness={0.65} />
+        <meshStandardMaterial color={finishes.colors[topKey] ?? palette.darkWood} roughness={0.65} />
       </mesh>
       <mesh position={[0, 0.2, 0]} castShadow><cylinderGeometry args={[0.06, 0.14, 0.36, 18]} /><meshStandardMaterial color={palette.charcoal} roughness={0.6} /></mesh>
-      <mesh position={[0, 0.06, 0]} scale={[0.26, 0.035, 0.17]} castShadow receiveShadow><sphereGeometry args={[1, 24, 12]} /><meshStandardMaterial color={palette.brass} metalness={0.42} roughness={0.38} /></mesh>
+      <mesh position={[0, 0.06, 0]} scale={[0.26, 0.035, 0.17]} castShadow receiveShadow onDoubleClick={(event) => { event.stopPropagation(); finishes.select({ targetKey: baseKey, owner: item.name, part: 'Base', role: 'metal', defaultColor: palette.brass }); }}><sphereGeometry args={[1, 24, 12]} /><meshStandardMaterial color={finishes.colors[baseKey] ?? palette.brass} metalness={0.42} roughness={0.38} /></mesh>
     </group>
   );
 }
 
-function AccentChair({ position }: { position: [number, number, number] }) {
+function AccentChair({ item, position }: { item: SceneObject; position: [number, number, number] }) {
   return (
     <group position={position}>
-      <Box position={[0, 0.43, 0]} size={[0.76, 0.2, 0.81]} color={palette.rust} radius={0.13} />
-      <Box position={[0, 0.72, -0.27]} size={[0.68, 0.52, 0.16]} color="#b56f50" radius={0.12} />
-      {[-0.34, 0.34].map((x) => <Box key={`${x}-arm`} position={[x, 0.58, 0]} size={[0.08, 0.28, 0.58]} color="#9f5f47" radius={0.045} />)}
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="seat" label="Seat" role="textile" defaultColor={palette.rust} position={[0, 0.43, 0]} size={[0.76, 0.2, 0.81]} radius={0.13} />
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="back" label="Back" role="textile" defaultColor="#b56f50" position={[0, 0.72, -0.27]} size={[0.68, 0.52, 0.16]} radius={0.12} />
+      {[-0.34, 0.34].map((x) => <FinishBox key={`${x}-arm`} scope="furniture" targetId={item.id} owner={item.name} part="arms" label="Arms" role="textile" defaultColor="#9f5f47" position={[x, 0.58, 0]} size={[0.08, 0.28, 0.58]} radius={0.045} />)}
       {[-0.25, 0.25].flatMap((x) => [-0.23, 0.23].map((z) => <Box key={`${x}-${z}`} position={[x, 0.18, z]} size={[0.055, 0.36, 0.055]} color={palette.darkWood} radius={0.018} rotation={[z > 0 ? 0.06 : -0.06, 0, x > 0 ? -0.05 : 0.05]} />))}
     </group>
   );
 }
 
-function Nightstand({ position }: { position: [number, number, number] }) {
+function Nightstand({ item, position }: { item: SceneObject; position: [number, number, number] }) {
   return (
     <group position={position}>
-      <Box position={[0, 0.36, 0]} size={[0.56, 0.48, 0.46]} color={palette.wood} radius={0.04} />
-      <Box position={[0, 0.63, 0]} size={[0.56, 0.07, 0.46]} color="#cfb998" radius={0.025} />
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="body" label="Nightstand body" role="wood" defaultColor={palette.wood} position={[0, 0.36, 0]} size={[0.56, 0.48, 0.46]} radius={0.04} />
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="top" label="Nightstand top" role="wood" defaultColor="#cfb998" position={[0, 0.63, 0]} size={[0.56, 0.07, 0.46]} radius={0.025} />
       {[-0.09, 0.11].map((y) => <Box key={y} position={[0, 0.36 + y, 0.238]} size={[0.48, 0.025, 0.025]} color={palette.darkWood} radius={0.006} />)}
       {[-0.09, 0.11].map((y) => <mesh key={`${y}-knob`} position={[0, 0.36 + y, 0.265]} castShadow><sphereGeometry args={[0.025, 12, 8]} /><meshStandardMaterial color={palette.brass} metalness={0.7} roughness={0.25} /></mesh>)}
       {[-0.21, 0.21].flatMap((x) => [-0.15, 0.15].map((z) => <Box key={`${x}-${z}`} position={[x, 0.08, z]} size={[0.045, 0.16, 0.045]} color={palette.darkWood} radius={0.014} />))}
@@ -560,22 +604,22 @@ function Nightstand({ position }: { position: [number, number, number] }) {
   );
 }
 
-function Bookcase({ position }: { position: [number, number, number] }) {
+function Bookcase({ item, position }: { item: SceneObject; position: [number, number, number] }) {
   const shelves = [0.08, 0.5, 0.92, 1.34, 1.76];
   return (
     <group position={position}>
-      <Box position={[0, 0.915, -0.13]} size={[0.91, 1.83, 0.08]} color={palette.darkWood} radius={0.025} />
-      {[-0.42, 0.42].map((x) => <Box key={x} position={[x, 0.915, 0]} size={[0.07, 1.83, 0.35]} color={palette.wood} radius={0.022} />)}
-      {shelves.map((y) => <Box key={y} position={[0, y, 0]} size={[0.88, 0.065, 0.35]} color="#b58b65" radius={0.018} />)}
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="back" label="Bookcase back" role="wood" defaultColor={palette.darkWood} position={[0, 0.915, -0.13]} size={[0.91, 1.83, 0.08]} radius={0.025} />
+      {[-0.42, 0.42].map((x) => <FinishBox key={x} scope="furniture" targetId={item.id} owner={item.name} part="frame" label="Bookcase frame" role="wood" defaultColor={palette.wood} position={[x, 0.915, 0]} size={[0.07, 1.83, 0.35]} radius={0.022} />)}
+      {shelves.map((y) => <FinishBox key={y} scope="furniture" targetId={item.id} owner={item.name} part="shelves" label="Shelves" role="wood" defaultColor="#b58b65" position={[0, y, 0]} size={[0.88, 0.065, 0.35]} radius={0.018} />)}
       {[[-0.29, 0.27, '#73877e'], [-0.12, 0.29, '#c47e58'], [0.07, 0.26, '#d8cdbb'], [0.26, 0.3, '#596f78']].flatMap(([x, width, color], row) => [0.12, 0.54, 0.96, 1.38].map((y) => <Box key={`${row}-${y}`} position={[Number(x), y + 0.12, 0.085]} size={[Number(width) * 0.55, 0.24 + row * 0.015, 0.14]} color={String(color)} radius={0.012} />))}
     </group>
   );
 }
 
-function GenericObject({ position }: { position: [number, number, number] }) {
+function GenericObject({ item, position }: { item: SceneObject; position: [number, number, number] }) {
   return (
     <group position={position}>
-      <Box position={[0, 0.4, 0]} size={[0.8, 0.8, 0.8]} color={palette.sage} radius={0.035} />
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="body" label="Body" role="surface" defaultColor={palette.sage} position={[0, 0.4, 0]} size={[0.8, 0.8, 0.8]} radius={0.035} />
     </group>
   );
 }
@@ -585,7 +629,7 @@ function AddedFurniture({ item }: { item: SceneObject }) {
   const color = item.category === 'storage' ? palette.wood : item.category === 'table' ? palette.darkWood : '#86968e';
   return (
     <group position={[item.transform.position.x, 0, item.transform.position.z]} rotation={[0, THREE.MathUtils.degToRad(item.transform.rotation.y), 0]}>
-      <Box position={[0, height / 2, 0]} size={[width, height, depth]} color={color} radius={0.07} />
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="body" label="Body" role="surface" defaultColor={color} position={[0, height / 2, 0]} size={[width, height, depth]} radius={0.07} />
     </group>
   );
 }
@@ -607,16 +651,16 @@ function Furniture({ objects }: { objects: SceneObject[] }) {
     <group>
       {objects.map((item) => {
         const kind = getFurnitureKind(item.category, item.name);
-        if (kind === 'sofa') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.sofa}><Sofa position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'desk') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.desk}><Desk position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'coffee') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.coffee}><CoffeeTable position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'dining') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.dining}><DiningSet position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'bed') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.bed}><Bed position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'chair') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.chair}><AccentChair position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'nightstand') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.nightstand}><Nightstand position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'bookcase') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.bookcase}><Bookcase position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'storage') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.storage}><Dresser position={[0, 0, 0]} /></ScaledFurniture>;
-        if (kind === 'other') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.other}><GenericObject position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'sofa') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.sofa}><Sofa item={item} position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'desk') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.desk}><Desk item={item} position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'coffee') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.coffee}><CoffeeTable item={item} position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'dining') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.dining}><DiningSet item={item} position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'bed') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.bed}><Bed item={item} position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'chair') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.chair}><AccentChair item={item} position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'nightstand') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.nightstand}><Nightstand item={item} position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'bookcase') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.bookcase}><Bookcase item={item} position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'storage') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.storage}><Dresser item={item} position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'other') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.other}><GenericObject item={item} position={[0, 0, 0]} /></ScaledFurniture>;
         return <AddedFurniture key={item.id} item={item} />;
       })}
     </group>
@@ -704,7 +748,7 @@ function Sunlight({ hour, northAngle, center, sceneSpan, maximumHeight }: { hour
   );
 }
 
-function Scene({ hour, northAngle, measurements, objects, architecture }: Omit<ApartmentSceneProps, 'projectId' | 'cameraStep' | 'cameraReset'>) {
+function Scene({ hour, northAngle, measurements, objects, architecture }: Pick<ApartmentSceneProps, 'hour' | 'northAngle' | 'measurements' | 'objects' | 'architecture'>) {
   const bounds = getArchitectureBounds(architecture);
   const rooms = architecture.filter((element): element is RoomElement => element.kind === 'room');
   const walls = new Map(architecture.flatMap((element) => element.kind === 'wall' ? [[element.id, element] as const] : []));
@@ -738,6 +782,34 @@ function Scene({ hour, northAngle, measurements, objects, architecture }: Omit<A
   );
 }
 
+const finishPresets = ['#73877e', '#b98f68', '#c47e58', '#596f78', '#d8cdbb', '#765b45', '#9b6a88', '#4f7c78'];
+
+function FinishPanel({ selection, rawColor, mood, previewColor, saving, message, onRawColor, onMood, onApply, onReset, onClose }: {
+  selection: FinishSelection;
+  rawColor: string;
+  mood: FinishMood;
+  previewColor: string;
+  saving: boolean;
+  message: string;
+  onRawColor: (color: string) => void;
+  onMood: (mood: FinishMood) => void;
+  onApply: () => void;
+  onReset: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <aside className="finish-panel" aria-label={`Edit ${selection.part} finish`}>
+      <div className="finish-panel-heading"><div><span>3D FINISH STUDIO</span><strong>{selection.owner} · {selection.part}</strong></div><button type="button" onClick={onClose} aria-label="Close finish studio">×</button></div>
+      <p>Choose any hue. Dwellwise refines it for this material so the room stays cohesive.</p>
+      <div className="finish-color-readout"><label style={{ backgroundColor: rawColor }}><input type="color" value={rawColor} onChange={(event) => onRawColor(event.target.value)} aria-label="Choose a finish color" /></label><span>YOUR COLOR</span><i>→</i><b style={{ backgroundColor: previewColor }} /><span>REFINED</span></div>
+      <div className="finish-swatches" aria-label="Curated colors">{finishPresets.map((color) => <button key={color} type="button" aria-label={`Choose ${color}`} style={{ backgroundColor: color }} onClick={() => onRawColor(color)} />)}</div>
+      <div className="finish-moods" aria-label="Finish character">{(['soft', 'balanced', 'bold'] as const).map((option) => <button className={mood === option ? 'active' : ''} key={option} type="button" onClick={() => onMood(option)}>{option}</button>)}</div>
+      <div className="finish-actions"><button type="button" onClick={onReset} disabled={saving}>Reset</button><button type="button" onClick={onApply} disabled={saving}>{saving ? 'Saving…' : 'Apply finish'}</button></div>
+      {message && <small role="status">{message}</small>}
+    </aside>
+  );
+}
+
 export default function ApartmentScene(props: ApartmentSceneProps) {
   const storageKey = cameraStorageKey(props.projectId);
   const footprint = useMemo(() => cameraFootprint(props.architecture), [props.architecture]);
@@ -749,6 +821,19 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
   };
   const pendingCamera = useRef<CameraViewState | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [selection, setSelection] = useState<FinishSelection | null>(null);
+  const [rawColor, setRawColor] = useState('#73877e');
+  const [mood, setMood] = useState<FinishMood>('balanced');
+  const [savingFinish, setSavingFinish] = useState(false);
+  const [finishMessage, setFinishMessage] = useState('');
+  const previewColor = selection ? harmonizeColor(rawColor, selection.role, mood) : rawColor;
+  const displayedColors = useMemo(() => selection ? { ...props.materialOverrides, [selection.targetKey]: previewColor } : props.materialOverrides, [previewColor, props.materialOverrides, selection]);
+  const selectFinish = useCallback((next: FinishSelection) => {
+    setSelection(next);
+    setRawColor(props.materialOverrides[next.targetKey] ?? next.defaultColor);
+    setMood('balanced');
+    setFinishMessage('Previewing live · apply to save');
+  }, [props.materialOverrides]);
   const saveCamera = useCallback((state: CameraPose) => {
     const savedState = { ...state, footprint };
     pendingCamera.current = savedState;
@@ -766,8 +851,8 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
   }, [storageKey]);
 
   return (
-    <div className="three-canvas" role="img" aria-label="Interactive three-dimensional apartment model. Drag to orbit, scroll to zoom, and right-drag to pan.">
-      <Canvas
+    <div className="three-canvas" role="region" aria-label="Interactive three-dimensional apartment model. Drag to orbit, scroll to zoom, right-drag to pan, or double-click a surface to change its finish.">
+      <FinishContext.Provider value={{ colors: displayedColors, select: selectFinish }}><Canvas
         shadows
         dpr={[1, 1.75]}
         camera={{ position: initialCamera.position, fov: 42, near: 0.1, far: 100 }}
@@ -788,8 +873,19 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
           architecture={props.architecture}
         />
         <CameraController step={props.cameraStep} reset={props.cameraReset} architecture={props.architecture} initialState={savedCamera} onCameraChange={saveCamera} />
-      </Canvas>
-      <div className="canvas-help"><span>DRAG</span> orbit <i /> <span>SCROLL</span> zoom <i /> <span>RIGHT-DRAG</span> pan <i /> walls auto-hide</div>
+      </Canvas></FinishContext.Provider>
+      {selection && <FinishPanel selection={selection} rawColor={rawColor} mood={mood} previewColor={previewColor} saving={savingFinish} message={finishMessage} onRawColor={(color) => { setRawColor(color); setFinishMessage('Previewing live · apply to save'); }} onMood={(nextMood) => { setMood(nextMood); setFinishMessage('Previewing live · apply to save'); }} onApply={() => {
+        setSavingFinish(true);
+        setFinishMessage('Saving finish…');
+        void props.onMaterialChange(selection.targetKey, previewColor).then((error) => setFinishMessage(error ?? 'Finish saved · undo is available')).finally(() => setSavingFinish(false));
+      }} onReset={() => {
+        setSavingFinish(true);
+        void props.onMaterialChange(selection.targetKey, null).then((error) => {
+          if (error) setFinishMessage(error);
+          else setSelection(null);
+        }).finally(() => setSavingFinish(false));
+      }} onClose={() => setSelection(null)} />}
+      <div className="canvas-help"><span>DOUBLE-CLICK</span> a surface to recolor <i /> <span>DRAG</span> orbit <i /> <span>SCROLL</span> zoom <i /> walls auto-hide</div>
     </div>
   );
 }

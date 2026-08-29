@@ -4,6 +4,7 @@ import { pageInputSchemaProperties, paginate, parsePageInput } from './paginatio
 import { toolFailure, toolSuccess } from './result';
 import { renameProjectInputSchema } from './schemas';
 import type { WebMcpResult, WebMcpTool } from './types';
+import { harmonizeColor, isMaterialKey, normalizeHexColor, type FinishMood, type MaterialRole } from '@/lib/domain/materials';
 
 export const CURRENT_EDITOR_TOOL_NAMES = [
   'dwellwise.get_project_summary',
@@ -12,6 +13,7 @@ export const CURRENT_EDITOR_TOOL_NAMES = [
   'dwellwise.rename_project',
   'dwellwise.add_furniture',
   'dwellwise.update_furniture',
+  'dwellwise.update_finish',
   'dwellwise.remove_furniture',
   'dwellwise.resize_apartment',
   'dwellwise.rename_room',
@@ -85,6 +87,7 @@ export type EditorToolDependencies = {
   renameProject: (projectId: string | undefined, name: string, signal: AbortSignal) => Promise<WebMcpResult>;
   addFurniture: (input: AddFurnitureToolInput, signal: AbortSignal) => Promise<WebMcpResult>;
   updateFurniture: (input: UpdateFurnitureToolInput, signal: AbortSignal) => Promise<WebMcpResult>;
+  updateFinish: (targetKey: string, color: string, signal: AbortSignal) => Promise<WebMcpResult>;
   removeFurniture: (furnitureId: string, signal: AbortSignal) => Promise<WebMcpResult>;
   resizeApartment: (width: number, depth: number, height: number, signal: AbortSignal) => Promise<WebMcpResult>;
   renameRoom: (roomId: string, name: string, signal: AbortSignal) => Promise<WebMcpResult>;
@@ -178,6 +181,7 @@ export function projectSummary(snapshot: EditorToolSnapshot) {
       windows: architecture.filter((element) => element.kind === 'opening' && element.openingType === 'window').length,
       furniture: snapshot.objects.length,
     },
+    finishes: Object.entries(snapshot.project.scene.materialOverrides ?? {}).slice(0, 100).map(([targetKey, color]) => ({ targetKey, color })),
   };
 }
 
@@ -312,6 +316,16 @@ export function buildEditorTools(dependencies: EditorToolDependencies): WebMcpTo
       inputSchema: { type: 'object', additionalProperties: false, properties: { furnitureId: { type: 'string', minLength: 1, maxLength: 128 } }, required: ['furnitureId'] },
       annotations: writeAnnotations,
       execute: (input, { signal }) => !isRecord(input) || !validId(input.furnitureId) ? toolFailure('INVALID_INPUT', 'furnitureId is required.') : dependencies.removeFurniture(input.furnitureId, signal),
+    },
+    {
+      name: 'dwellwise.update_finish', title: 'Update a 3D material finish',
+      description: 'Save a refined color for a furniture part, floor, wall, door, or window frame. Read existing target keys from the project summary. The chosen hue is balanced for the material role.',
+      inputSchema: { type: 'object', additionalProperties: false, properties: { targetKey: { type: 'string', minLength: 3, maxLength: 180 }, color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }, role: { type: 'string', enum: ['wood', 'textile', 'accent', 'metal', 'wall', 'floor', 'surface'] }, mood: { type: 'string', enum: ['soft', 'balanced', 'bold'] } }, required: ['targetKey', 'color', 'role'] },
+      annotations: writeAnnotations,
+      execute: (input, { signal }) => {
+        if (!isRecord(input) || typeof input.targetKey !== 'string' || !isMaterialKey(input.targetKey) || typeof input.color !== 'string' || !normalizeHexColor(input.color) || !['wood', 'textile', 'accent', 'metal', 'wall', 'floor', 'surface'].includes(String(input.role)) || (input.mood !== undefined && !['soft', 'balanced', 'bold'].includes(String(input.mood)))) return toolFailure('INVALID_INPUT', 'Provide a valid material target, six-digit hex color, material role, and optional mood.');
+        return dependencies.updateFinish(input.targetKey, harmonizeColor(input.color, input.role as MaterialRole, (input.mood ?? 'balanced') as FinishMood), signal);
+      },
     },
     {
       name: 'dwellwise.resize_apartment', title: 'Resize the current apartment',

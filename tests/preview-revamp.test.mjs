@@ -215,8 +215,8 @@ test('3D furniture geometry respects the collision footprints used by the 2D pla
 });
 
 test('the 3D generic object is green and the sofa has no orange accent cushion', () => {
-  assert.match(scene, /function GenericObject[\s\S]*size=\{\[0\.8, 0\.8, 0\.8\]\} color=\{palette\.sage\}/);
-  assert.equal((scene.match(/function GenericObject[\s\S]*?\n\}/)?.[0].match(/<Box/g) ?? []).length, 1, 'generic object should be one cube');
+  assert.match(scene, /function GenericObject[\s\S]*defaultColor=\{palette\.sage\}[\s\S]*size=\{\[0\.8, 0\.8, 0\.8\]\}/);
+  assert.equal((scene.match(/function GenericObject[\s\S]*?\n\}/)?.[0].match(/<FinishBox/g) ?? []).length, 1, 'generic object should be one cube');
   assert.equal(scene.includes('<torusGeometry args={[0.17, 0.025, 10, 32]}'), false);
   assert.equal(scene.includes('position={[0.82, 0.7, -0.24]}'), false);
 });
@@ -239,8 +239,8 @@ test('requested 3D furniture cleanup keeps the earlier bed and clear dining tabl
   assert.equal(scene.includes('position={[0, 0.69, 0.12]}'), false, 'bed should use its earlier design');
   assert.equal(scene.includes('cylinderGeometry args={[0.085, 0.07, 0.12, 18]}'), false, 'dining centerpiece should be removed');
   assert.equal(scene.includes('key={`place-${index}`}'), false, 'dining place settings should be removed');
-  assert.match(scene, /position=\{\[-0\.46, 0\.55, 0\.08\]\} size=\{\[0\.87, 0\.2, 0\.62\]\}/);
-  assert.match(scene, /position=\{\[-0\.46, 0\.81, -0\.15\]\} size=\{\[0\.87, 0\.32, 0\.18\]\}/);
+  assert.match(scene, /\[-0\.46, 0\.46\]\.map\(\(x\) => <FinishBox[\s\S]*position=\{\[x, 0\.55, 0\.08\]\} size=\{\[0\.87, 0\.2, 0\.62\]\}/);
+  assert.match(scene, /\[-0\.46, 0\.46\]\.map\(\(x\) => <FinishBox[\s\S]*position=\{\[x, 0\.81, -0\.15\]\} size=\{\[0\.87, 0\.32, 0\.18\]\}/);
 });
 
 test('3D furniture details keep the dresser, chair, desk, and bed visually coherent', () => {

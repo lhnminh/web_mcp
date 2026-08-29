@@ -56,10 +56,23 @@ const resultModule = loadTypeScript('app/webmcp/result.ts');
 const manifestModule = loadTypeScript('lib/application/action-manifest.ts');
 const architectureModule = loadTypeScript('lib/domain/architecture.ts');
 const architectureCommandsModule = loadTypeScript('lib/application/architecture-commands.ts');
+const materialsModule = loadTypeScript('lib/domain/materials.ts');
 
 const executeOptions = () => ({ signal: new AbortController().signal });
 const byName = (tools, name) => tools.find((tool) => tool.name === name);
 const plain = (value) => JSON.parse(JSON.stringify(value));
+
+test('material harmonization preserves hue while keeping each material in a tasteful range', () => {
+  for (const role of ['wood', 'textile', 'accent', 'metal', 'wall', 'floor', 'surface']) {
+    const refined = materialsModule.harmonizeColor('#ff00ff', role, 'balanced');
+    assert.match(refined, /^#[0-9a-f]{6}$/);
+    assert.notEqual(refined, '#ff00ff');
+    assert.equal(materialsModule.harmonizeColor(refined, role, 'balanced'), refined, 'balanced refinement should be stable');
+  }
+  assert.equal(materialsModule.materialKey('furniture', 'bed-1', 'headboard'), 'furniture:bed-1:headboard');
+  assert.equal(materialsModule.isMaterialKey('furniture:bed-1:headboard'), true);
+  assert.equal(materialsModule.isMaterialKey('bad target'), false);
+});
 
 function assertClosedObjectSchemas(schema, path = 'inputSchema') {
   if (!schema || typeof schema !== 'object') return;
@@ -93,7 +106,7 @@ const snapshot = {
   availableTools: [
     'dwellwise.get_project_summary', 'dwellwise.list_furniture', 'dwellwise.list_architecture',
     'dwellwise.rename_project', 'dwellwise.add_furniture', 'dwellwise.update_furniture',
-    'dwellwise.remove_furniture', 'dwellwise.resize_apartment',
+    'dwellwise.remove_furniture', 'dwellwise.update_finish', 'dwellwise.resize_apartment',
     'dwellwise.rename_room', 'dwellwise.add_wall', 'dwellwise.update_wall', 'dwellwise.remove_wall',
     'dwellwise.add_exterior_corner', 'dwellwise.remove_exterior_corner', 'dwellwise.add_opening',
     'dwellwise.update_opening', 'dwellwise.remove_opening',
@@ -147,6 +160,7 @@ test('editor exposes all MVP tools with closed bounded schemas', () => {
     renameProject: async () => resultModule.toolSuccess('renamed'),
     addFurniture: async () => resultModule.toolSuccess('added'),
     updateFurniture: async () => resultModule.toolSuccess('updated'),
+    updateFinish: async () => resultModule.toolSuccess('finish updated'),
     removeFurniture: async () => resultModule.toolSuccess('removed'),
     resizeApartment: async () => resultModule.toolSuccess('resized'),
     renameRoom: async () => resultModule.toolSuccess('room renamed'),
@@ -172,7 +186,7 @@ test('editor exposes all MVP tools with closed bounded schemas', () => {
   assert.deepEqual(Array.from(tools, (tool) => tool.name), [
     'dwellwise.get_project_summary', 'dwellwise.list_furniture', 'dwellwise.list_architecture',
     'dwellwise.rename_project', 'dwellwise.add_furniture', 'dwellwise.update_furniture',
-    'dwellwise.remove_furniture', 'dwellwise.resize_apartment',
+    'dwellwise.remove_furniture', 'dwellwise.update_finish', 'dwellwise.resize_apartment',
     'dwellwise.rename_room', 'dwellwise.add_wall', 'dwellwise.update_wall',
     'dwellwise.remove_wall', 'dwellwise.add_exterior_corner', 'dwellwise.remove_exterior_corner',
     'dwellwise.add_opening', 'dwellwise.update_opening', 'dwellwise.remove_opening', 'dwellwise.set_editor_view',
@@ -252,7 +266,7 @@ test('list tools paginate, filter, and reject cursors after consistency changes'
 test('action manifest accounts for every registered tool and documents every exclusion', () => {
   const noop = async () => resultModule.toolSuccess('ok');
   const dashboardTools = dashboardModule.buildDashboardTools({ getProjects: () => [], refreshProjects: async () => [], createProject: async () => ({}), renameProject: async () => ({}), prepareDeleteProject: () => undefined, openProject: () => undefined });
-  const editorTools = editorModule.buildEditorTools({ getSnapshot: () => snapshot, renameProject: noop, addFurniture: noop, updateFurniture: noop, removeFurniture: noop, resizeApartment: noop, renameRoom: noop, addWall: noop, updateWall: noop, removeWall: noop, addExteriorCorner: noop, removeExteriorCorner: noop, addOpening: noop, updateOpening: noop, removeOpening: noop, setEditorView: noop, setSunlightPreview: noop, selectEntity: noop, undo: noop, redo: noop, setPlanZoom: noop, reset3dCamera: noop, goToDashboard: noop, prepareResetProject: noop });
+  const editorTools = editorModule.buildEditorTools({ getSnapshot: () => snapshot, renameProject: noop, addFurniture: noop, updateFurniture: noop, updateFinish: noop, removeFurniture: noop, resizeApartment: noop, renameRoom: noop, addWall: noop, updateWall: noop, removeWall: noop, addExteriorCorner: noop, removeExteriorCorner: noop, addOpening: noop, updateOpening: noop, removeOpening: noop, setEditorView: noop, setSunlightPreview: noop, selectEntity: noop, undo: noop, redo: noop, setPlanZoom: noop, reset3dCamera: noop, goToDashboard: noop, prepareResetProject: noop });
   const registered = [...new Set([...dashboardTools, ...editorTools].map((tool) => tool.name))].sort();
   const covered = [...new Set(manifestModule.COVERED_WEBMCP_TOOLS)].sort();
   assert.deepEqual(covered, registered);

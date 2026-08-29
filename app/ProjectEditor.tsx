@@ -66,6 +66,21 @@ const timeLabel = (hour: number) => {
   return `${display}:${minute.toString().padStart(2, '0')} ${suffix}`;
 };
 
+function pruneOrphanedMaterialOverrides(scene: SceneDocument): SceneDocument {
+  if (!scene.materialOverrides) return scene;
+  const liveIds = {
+    furniture: new Set(scene.layouts.flatMap((layout) => layout.elements.map((element) => element.id))),
+    room: new Set(scene.architecture.flatMap((element) => element.kind === 'room' ? [element.id] : [])),
+    wall: new Set(scene.architecture.flatMap((element) => element.kind === 'wall' ? [element.id] : [])),
+    opening: new Set(scene.architecture.flatMap((element) => element.kind === 'opening' ? [element.id] : [])),
+  };
+  const materialOverrides = Object.fromEntries(Object.entries(scene.materialOverrides).filter(([key]) => {
+    const [scope, id] = key.split(':') as [keyof typeof liveIds | undefined, string | undefined];
+    return Boolean(scope && id && liveIds[scope]?.has(id));
+  }));
+  return { ...scene, materialOverrides };
+}
+
 function resizeApartmentScene(scene: SceneDocument, width: number, depth: number, height: number) {
   const resized = resizeSceneFootprint(scene, width, depth);
   return {
@@ -169,12 +184,13 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       const current = projectRef.current;
       const expectedRevision = projectRevisionRef.current;
       if (!current || expectedRevision === null) return 'The project is still loading.';
+      const sceneToSave = pruneOrphanedMaterialOverrides(scene);
       setArchitectureMessage('Saving architecture…');
       try {
         const response = await fetch(`/api/projects/${current.id}`, {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name: current.name, scene, expectedRevision }),
+          body: JSON.stringify({ name: current.name, scene: sceneToSave, expectedRevision }),
           signal: options.signal,
         });
         const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
@@ -196,6 +212,16 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         return message;
       }
     });
+  };
+
+  const updateMaterialFinish = async (targetKey: string, color: string | null, signal?: AbortSignal) => {
+    await moveSaveQueue.current;
+    const current = projectRef.current;
+    if (!current) return 'The project is still loading.';
+    const materialOverrides = { ...(current.scene.materialOverrides ?? {}) };
+    if (color === null) delete materialOverrides[targetKey];
+    else materialOverrides[targetKey] = color;
+    return saveScene({ ...current.scene, materialOverrides }, color === null ? 'Original finish restored.' : '3D finish updated.', { signal });
   };
 
   const resizeApartment = async (width: number, depth: number, height: number, signal?: AbortSignal) => {
@@ -695,6 +721,12 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       setSelected(item.id);
       return toolSuccess(`${item.name.slice(0, 80)} was updated.`, { projectId: updated?.id, revision: updated?.revision, data: { furnitureId: item.id } });
     },
+    updateFinish: async (targetKey, color, signal) => {
+      const error = await updateMaterialFinish(targetKey, color, signal);
+      const current = projectRef.current;
+      if (error) return toolFailureFromMessage(error, current?.revision);
+      return toolSuccess('The 3D finish was refined and saved.', { projectId: current?.id, revision: current?.revision, data: { targetKey, color } });
+    },
     removeFurniture: async (furnitureId, signal) => {
       const current = projectRef.current;
       if (!current) return toolFailure('NOT_READY', 'The project is still loading.', { retryable: true });
@@ -828,7 +860,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
             {view === 'three' && <PreviewControls hour={hour} camera={camera} northAngle={project.scene.northAngle} architecture={displayedArchitecture} measurements={showMeasurements} onHour={setHour} onCamera={setCamera} onReset={() => setCameraReset((value) => value + 1)} onMeasurements={setShowMeasurements} />}
             {view === 'evaluation' && <PriorityPanel />}
             {view === 'plan' && <PlanView northAngle={project.scene.northAngle} onOrientation={updatePlanOrientation} editMode={editMode} architecture={displayedArchitecture} selectedWallId={selectedWallId} selectedOpeningId={selectedOpeningId} selectedRoomId={selectedRoomId} drawingWall={drawingWall} selected={selected} onSelect={setSelected} onDeselect={() => setSelected('')} onSelectWall={selectWall} onSelectOpening={selectOpening} onSelectRoom={selectRoom} layout={layout} zoom={zoom} objects={sceneObjects[layout]} collisionMessage={editMode === 'architecture' ? architectureMessage : collisionMessage} statusError={editMode === 'architecture' ? Boolean(architectureMessage) && !architectureSuccess : Boolean(collisionMessage)} onMove={moveObject} onCommitMove={commitMove} onRotate={rotateObject} onDelete={removeObject} onAddWall={addWall} onUpdateWall={updateWall} onUpdateOpening={updateOpening} />}
-            {view === 'three' && <ThreeDView projectId={project.id} hour={hour} northAngle={project.scene.northAngle} camera={camera} cameraReset={cameraReset} measurements={showMeasurements} objects={sceneObjects[layout]} architecture={displayedArchitecture} />}
+            {view === 'three' && <ThreeDView projectId={project.id} hour={hour} northAngle={project.scene.northAngle} camera={camera} cameraReset={cameraReset} measurements={showMeasurements} objects={sceneObjects[layout]} architecture={displayedArchitecture} materialOverrides={project.scene.materialOverrides ?? {}} onMaterialChange={updateMaterialFinish} />}
             {view === 'evaluation' && <EvaluationView />}
           </>
         )}
@@ -1826,11 +1858,11 @@ function PreviewControls({ hour, camera, northAngle, architecture, measurements,
   );
 }
 
-function ThreeDView({ projectId, hour, northAngle, camera, cameraReset, measurements, objects, architecture }: { projectId: string; hour: number; northAngle: number; camera: number; cameraReset: number; measurements: boolean; objects: SceneObject[]; architecture: ArchitecturalElement[] }) {
+function ThreeDView({ projectId, hour, northAngle, camera, cameraReset, measurements, objects, architecture, materialOverrides, onMaterialChange }: { projectId: string; hour: number; northAngle: number; camera: number; cameraReset: number; measurements: boolean; objects: SceneObject[]; architecture: ArchitecturalElement[]; materialOverrides: Record<string, string>; onMaterialChange: (targetKey: string, color: string | null) => Promise<string | null> }) {
   return (
     <section className="preview-workspace" aria-label="3D apartment preview">
       <div className="preview-topline"><div><span className="eyebrow">3D APARTMENT · SUNLIGHT PREVIEW</span><strong>{timeLabel(hour)}</strong></div></div>
-      <ApartmentScene projectId={projectId} hour={hour} northAngle={northAngle} cameraStep={camera} cameraReset={cameraReset} measurements={measurements} objects={objects} architecture={architecture} />
+      <ApartmentScene projectId={projectId} hour={hour} northAngle={northAngle} cameraStep={camera} cameraReset={cameraReset} measurements={measurements} objects={objects} architecture={architecture} materialOverrides={materialOverrides} onMaterialChange={onMaterialChange} />
       {measurements && <div className="sr-only" role="status">Furniture dimensions: {objects.map((item) => `${item.name}, width ${item.dimensions.width.toFixed(2)} meters, depth ${item.dimensions.depth.toFixed(2)} meters, height ${item.dimensions.height.toFixed(2)} meters`).join('; ')}</div>}
       <div className="sun-timeline"><div /><div className="timeline-track"><div className="daylight-band"><i style={{ left: `${((hour - 7) / 13) * 100}%` }} /></div><div className="time-ticks"><span>7 AM</span><span>10 AM</span><span>1 PM</span><span>4 PM</span><span>8 PM</span></div></div><div /></div>
     </section>

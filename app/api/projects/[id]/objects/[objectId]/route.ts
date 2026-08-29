@@ -114,6 +114,10 @@ export async function DELETE(request: Request, context: Context) {
     if (index < 0) return jsonForProfile(profile, { error: 'Object not found in layout' }, { status: 404 });
     if (layout.elements[index].locked) return jsonForProfile(profile, { error: 'Object is locked' }, { status: 423 });
     layout.elements.splice(index, 1);
+    if (project.scene.materialOverrides) {
+      const prefix = `furniture:${objectId}:`;
+      project.scene.materialOverrides = Object.fromEntries(Object.entries(project.scene.materialOverrides).filter(([key]) => !key.startsWith(prefix)));
+    }
     const result = await updateProject({ id, ownerProfileId: profile.id, name: project.name, scene: project.scene, expectedRevision: project.revision });
     if (result === 'conflict') return jsonForProfile(profile, { error: 'Project changed while the object was being removed', current: await getProject(id, profile.id) }, { status: 409 });
     return result ? jsonForProfile(profile, result) : jsonForProfile(profile, { error: 'Project not found' }, { status: 404 });
