@@ -55,7 +55,7 @@ test('architecture property edits preview live and save without apply buttons', 
   assert.match(editor, /position slider`\}[\s\S]*?onPointerUp=\{\(\) => \{ void saveOpeningValues\(\); \}\}/);
   assert.match(editor, /Exact \$\{selectedWindow \? 'window' : 'door'\} position`\}[\s\S]*?onBlur=\{\(\) => \{ void saveOpeningValues\(\); \}\}/);
   assert.match(editor, /saveOpeningValues\(changeOpeningValues\(\{ swing: 'left' \}\)\)/);
-  assert.match(editor, /Changes save automatically/);
+  assert.equal(editor.includes('architecture-autosave-status'), false);
 });
 
 test('the static north arrow is replaced by a saved cardinal compass', () => {
