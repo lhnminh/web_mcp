@@ -937,7 +937,13 @@ function ModeBar({ view, compare, editMode, zoom, canUndo, canRedo, onUndo, onRe
       ) : view === 'plan' ? (
         <div className="plan-tools"><button aria-label="Undo last change" onClick={() => { void onUndo(); }} disabled={!canUndo}>↶</button><button aria-label="Redo last change" onClick={() => { void onRedo(); }} disabled={!canRedo}>↷</button><div className="zoom-tools"><button aria-label="Zoom out" onClick={() => onZoom(Math.max(50, zoom - 5))} disabled={zoom <= 50}>−</button><strong>{zoom}%</strong><button aria-label="Zoom in" onClick={() => onZoom(Math.min(120, zoom + 5))} disabled={zoom >= 120}>+</button></div></div>
       ) : view === 'three' ? (
-        <div className="view-context">ORIENTATION-AWARE VISUAL PREVIEW</div>
+        <div className="three-mode-tools">
+          <span>ORIENTATION-AWARE VISUAL PREVIEW</span>
+          <div className="three-history-tools" role="group" aria-label="3D edit history">
+            <button aria-label="Undo last change" onClick={() => { void onUndo(); }} disabled={!canUndo}>↶</button>
+            <button aria-label="Redo last change" onClick={() => { void onRedo(); }} disabled={!canRedo}>↷</button>
+          </div>
+        </div>
       ) : (
         <div className="view-context">WEIGHTED TO YOUR PRIORITIES</div>
       )}

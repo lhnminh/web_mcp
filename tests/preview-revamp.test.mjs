@@ -44,6 +44,13 @@ test('undo and redo buttons do not pass React click events as abort signals', ()
   assert.equal(editor.includes('aria-label="Redo last change" onClick={onRedo}'), false);
 });
 
+test('3D mode exposes the shared undo and redo history without plan zoom controls', () => {
+  assert.match(editor, /className="three-mode-tools"[\s\S]*ORIENTATION-AWARE VISUAL PREVIEW[\s\S]*aria-label="3D edit history"/);
+  assert.match(editor, /aria-label="3D edit history"[\s\S]*void onUndo\(\)[\s\S]*void onRedo\(\)/);
+  assert.match(styles, /\.three-history-tools\{[^}]*border:1px solid var\(--draft-blue\)/);
+  assert.equal(/aria-label="3D edit history"[\s\S]*Zoom out/.test(editor), false);
+});
+
 test('resetting or resizing an apartment cannot restore stale 3D camera framing', () => {
   assert.match(scene, /footprint: \{ width: number; depth: number \}/);
   assert.match(scene, /Math\.abs\(savedFootprint\.width - footprint\.width\) < 0\.01/);
