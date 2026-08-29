@@ -44,6 +44,20 @@ test('resetting or resizing an apartment cannot restore stale 3D camera framing'
   assert.match(editor, /clearSavedApartmentCamera\(current\.id\)/);
 });
 
+test('architecture property edits preview live and save without apply buttons', () => {
+  for (const label of ['Apply apartment size', 'Apply wall dimensions', 'Apply window changes', 'Apply door changes']) {
+    assert.equal(editor.includes(label), false, `${label} should not be required`);
+  }
+  assert.match(editor, /aria-label="Apartment width slider"[\s\S]*?onPointerUp=\{\(\) => \{ void saveApartmentValues\(\); \}\}[\s\S]*?onKeyUp=\{\(\) => \{ void saveApartmentValues\(\); \}\}/);
+  assert.match(editor, /aria-label="Exact apartment width"[\s\S]*?onKeyDown=\{blurOnEnter\}[\s\S]*?onBlur=\{\(\) => \{ void saveApartmentValues\(\); \}\}/);
+  assert.match(editor, /aria-label="Wall length slider"[\s\S]*?onPointerUp=\{\(\) => \{ void saveWallValues\(\); \}\}/);
+  assert.match(editor, /aria-label="Exact wall length"[\s\S]*?onBlur=\{\(\) => \{ void saveWallValues\(\); \}\}/);
+  assert.match(editor, /position slider`\}[\s\S]*?onPointerUp=\{\(\) => \{ void saveOpeningValues\(\); \}\}/);
+  assert.match(editor, /Exact \$\{selectedWindow \? 'window' : 'door'\} position`\}[\s\S]*?onBlur=\{\(\) => \{ void saveOpeningValues\(\); \}\}/);
+  assert.match(editor, /saveOpeningValues\(changeOpeningValues\(\{ swing: 'left' \}\)\)/);
+  assert.match(editor, /Changes save automatically/);
+});
+
 test('the static north arrow is replaced by a saved cardinal compass', () => {
   assert.equal(editor.includes('<div className="north-marker">'), false);
   assert.match(editor, /function PlanCompass/);

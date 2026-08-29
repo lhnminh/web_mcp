@@ -992,6 +992,7 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
     setDepth(next.depth);
     setHeight(next.height);
     onPreviewApartment(next.width, next.depth, next.height);
+    return next;
   };
 
   const wallPatch = (values: typeof wallValues) => {
@@ -1011,41 +1012,44 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
     const next = { ...wallValues, [key]: value };
     setWallValues(next);
     if (selectedWall) onPreviewWall(selectedWall.id, wallPatch(next));
+    return next;
   };
 
   const changeOpeningValues = (patch: Partial<typeof openingValues>) => {
     const next = { ...openingValues, ...patch };
     setOpeningValues(next);
     if (selectedOpening) onPreviewOpening(selectedOpening.id, selectedWindow ? { offset: next.offset, width: next.width, height: next.height, sillHeight: next.sillHeight } : next);
+    return next;
   };
 
-  const resize = async (event: FormEvent) => {
-    event.preventDefault();
+  const saveApartmentValues = async (values = { width, depth, height }) => {
     setSaving(true);
-    await onResizeApartment(width, depth, height);
+    await onResizeApartment(values.width, values.depth, values.height);
     setSaving(false);
   };
 
-  const saveWall = async (event: FormEvent) => {
-    event.preventDefault();
+  const saveWallValues = async (values = wallValues) => {
     if (!selectedWall) return;
     setSaving(true);
-    await onUpdateWall(selectedWall.id, wallPatch(wallValues));
+    await onUpdateWall(selectedWall.id, wallPatch(values));
     setSaving(false);
   };
 
-  const saveOpening = async (event: FormEvent) => {
-    event.preventDefault();
+  const saveOpeningValues = async (values = openingValues) => {
     if (!selectedOpening) return;
     setSaving(true);
-    await onUpdateOpening(selectedOpening.id, selectedWindow ? { offset: openingValues.offset, width: openingValues.width, height: openingValues.height, sillHeight: openingValues.sillHeight } : openingValues);
+    await onUpdateOpening(selectedOpening.id, selectedWindow ? { offset: values.offset, width: values.width, height: values.height, sillHeight: values.sillHeight } : values);
     setSaving(false);
+  };
+
+  const blurOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') event.currentTarget.blur();
   };
 
   const heading = selectedOpening ? `${selectedWindow ? 'Window' : 'Door'} properties` : selectedWall ? 'Wall properties' : drawingWall ? 'Add interior wall' : 'Apartment size';
-  const description = selectedOpening ? selectedWindow ? 'Drag the window along its wall or enter its exact dimensions and sill height below.' : 'Drag the door along its wall or enter exact dimensions and swing below.'
-    : selectedWall ? exterior ? 'Drag either corner or the highlighted edge to reshape the exterior perimeter.' : 'Drag the wall or either endpoint in the plan, or enter exact dimensions below.'
-      : drawingWall ? 'Choose a start point and an end point directly on the plan.' : 'Resize the full plan or start drawing a new interior wall.';
+  const description = selectedOpening ? selectedWindow ? 'Drag the window or edit its dimensions below. Changes save automatically.' : 'Drag the door or edit its dimensions and swing below. Changes save automatically.'
+    : selectedWall ? exterior ? 'Drag the perimeter or edit its dimensions below. Changes save automatically.' : 'Drag the wall or edit its dimensions below. Changes save automatically.'
+      : drawingWall ? 'Choose a start point and an end point directly on the plan.' : 'Resize the full plan or start drawing a new interior wall. Changes save automatically.';
 
   const safePreviewWidth = Math.max(width, 0.1);
   const safePreviewDepth = Math.max(depth, 0.1);
@@ -1064,28 +1068,28 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
     <aside className="add-object-panel architecture-properties">
       <div className="add-object-heading"><span className="eyebrow">ARCHITECTURE</span><h2>{heading}</h2><p>{description}</p></div>
       {selectedOpening && selectedWall ? (
-        <form onSubmit={saveOpening}>
+        <form onSubmit={(event) => event.preventDefault()}>
           <button type="button" className="back-to-wall-button" onClick={onCloseOpening}>← Back to wall</button>
           <div className="selected-wall-badge"><span>{selectedWindow ? 'WINDOW' : 'DOOR'} · {exterior ? 'EXTERIOR' : 'INTERIOR'} WALL</span><strong>{selectedOpening.id}</strong></div>
-          <label className="dimension-control"><span>POSITION FROM START · METERS</span><div><input aria-label={`${selectedWindow ? 'Window' : 'Door'} position slider`} type="range" min={openingClearance} max={positionSliderMaximum} step="0.01" value={openingValues.offset} onChange={(event) => changeOpeningValues({ offset: Math.min(Number(event.target.value), positionValueMaximum) })} /><input aria-label={`Exact ${selectedWindow ? 'window' : 'door'} position`} type="number" min={openingClearance} max={positionValueMaximum} step="0.01" value={openingValues.offset} onChange={(event) => changeOpeningValues({ offset: Math.min(Number(event.target.value), positionValueMaximum) })} /></div></label>
-          <label className="dimension-control"><span>WIDTH · METERS</span><div><input aria-label={`${selectedWindow ? 'Window' : 'Door'} width slider`} type="range" min="0.5" max={widthSliderMaximum} step="0.01" value={openingValues.width} onChange={(event) => changeOpeningValues({ width: Math.min(Number(event.target.value), widthValueMaximum) })} /><input aria-label={`Exact ${selectedWindow ? 'window' : 'door'} width`} type="number" min="0.5" max={widthValueMaximum} step="0.01" value={openingValues.width} onChange={(event) => changeOpeningValues({ width: Math.min(Number(event.target.value), widthValueMaximum) })} /></div></label>
-          <label className="dimension-control"><span>HEIGHT · METERS</span><div><input aria-label={`${selectedWindow ? 'Window' : 'Door'} height slider`} type="range" min={openingHeightMinimum} max={heightSliderMaximum} step="0.01" value={openingValues.height} onChange={(event) => changeOpeningValues({ height: Math.min(Number(event.target.value), heightValueMaximum) })} /><input aria-label={`Exact ${selectedWindow ? 'window' : 'door'} height`} type="number" min={openingHeightMinimum} max={heightValueMaximum} step="0.01" value={openingValues.height} onChange={(event) => changeOpeningValues({ height: Math.min(Number(event.target.value), heightValueMaximum) })} /></div></label>
-          {selectedWindow && <label className="dimension-control"><span>SILL HEIGHT · METERS</span><div><input aria-label="Window sill height slider" type="range" min="0" max={sillSliderMaximum} step="0.01" value={openingValues.sillHeight} onChange={(event) => changeOpeningValues({ sillHeight: Math.min(Number(event.target.value), sillValueMaximum) })} /><input aria-label="Exact window sill height" type="number" min="0" max={sillValueMaximum} step="0.01" value={openingValues.sillHeight} onChange={(event) => changeOpeningValues({ sillHeight: Math.min(Number(event.target.value), sillValueMaximum) })} /></div></label>}
-          {!selectedWindow && <><fieldset className="door-toggle"><legend>HINGE SIDE</legend><button type="button" className={openingValues.swing === 'left' ? 'active' : ''} onClick={() => changeOpeningValues({ swing: 'left' })}>Left</button><button type="button" className={openingValues.swing === 'right' ? 'active' : ''} onClick={() => changeOpeningValues({ swing: 'right' })}>Right</button></fieldset><fieldset className="door-toggle"><legend>SWING DIRECTION</legend><button type="button" className={openingValues.swingSide === 'in' ? 'active' : ''} onClick={() => changeOpeningValues({ swingSide: 'in' })}>Inward</button><button type="button" className={openingValues.swingSide === 'out' ? 'active' : ''} onClick={() => changeOpeningValues({ swingSide: 'out' })}>Outward</button></fieldset></>}
-          <button className="place-object" disabled={loading || saving}>{saving ? 'Saving…' : `Apply ${selectedWindow ? 'window' : 'door'} changes`}</button>
+          <label className="dimension-control"><span>POSITION FROM START · METERS</span><div><input aria-label={`${selectedWindow ? 'Window' : 'Door'} position slider`} type="range" min={openingClearance} max={positionSliderMaximum} step="0.01" value={openingValues.offset} onChange={(event) => changeOpeningValues({ offset: Math.min(Number(event.target.value), positionValueMaximum) })} onPointerUp={() => { void saveOpeningValues(); }} onKeyUp={() => { void saveOpeningValues(); }} /><input aria-label={`Exact ${selectedWindow ? 'window' : 'door'} position`} type="number" min={openingClearance} max={positionValueMaximum} step="0.01" value={openingValues.offset} onChange={(event) => changeOpeningValues({ offset: Math.min(Number(event.target.value), positionValueMaximum) })} onKeyDown={blurOnEnter} onBlur={() => { void saveOpeningValues(); }} /></div></label>
+          <label className="dimension-control"><span>WIDTH · METERS</span><div><input aria-label={`${selectedWindow ? 'Window' : 'Door'} width slider`} type="range" min="0.5" max={widthSliderMaximum} step="0.01" value={openingValues.width} onChange={(event) => changeOpeningValues({ width: Math.min(Number(event.target.value), widthValueMaximum) })} onPointerUp={() => { void saveOpeningValues(); }} onKeyUp={() => { void saveOpeningValues(); }} /><input aria-label={`Exact ${selectedWindow ? 'window' : 'door'} width`} type="number" min="0.5" max={widthValueMaximum} step="0.01" value={openingValues.width} onChange={(event) => changeOpeningValues({ width: Math.min(Number(event.target.value), widthValueMaximum) })} onKeyDown={blurOnEnter} onBlur={() => { void saveOpeningValues(); }} /></div></label>
+          <label className="dimension-control"><span>HEIGHT · METERS</span><div><input aria-label={`${selectedWindow ? 'Window' : 'Door'} height slider`} type="range" min={openingHeightMinimum} max={heightSliderMaximum} step="0.01" value={openingValues.height} onChange={(event) => changeOpeningValues({ height: Math.min(Number(event.target.value), heightValueMaximum) })} onPointerUp={() => { void saveOpeningValues(); }} onKeyUp={() => { void saveOpeningValues(); }} /><input aria-label={`Exact ${selectedWindow ? 'window' : 'door'} height`} type="number" min={openingHeightMinimum} max={heightValueMaximum} step="0.01" value={openingValues.height} onChange={(event) => changeOpeningValues({ height: Math.min(Number(event.target.value), heightValueMaximum) })} onKeyDown={blurOnEnter} onBlur={() => { void saveOpeningValues(); }} /></div></label>
+          {selectedWindow && <label className="dimension-control"><span>SILL HEIGHT · METERS</span><div><input aria-label="Window sill height slider" type="range" min="0" max={sillSliderMaximum} step="0.01" value={openingValues.sillHeight} onChange={(event) => changeOpeningValues({ sillHeight: Math.min(Number(event.target.value), sillValueMaximum) })} onPointerUp={() => { void saveOpeningValues(); }} onKeyUp={() => { void saveOpeningValues(); }} /><input aria-label="Exact window sill height" type="number" min="0" max={sillValueMaximum} step="0.01" value={openingValues.sillHeight} onChange={(event) => changeOpeningValues({ sillHeight: Math.min(Number(event.target.value), sillValueMaximum) })} onKeyDown={blurOnEnter} onBlur={() => { void saveOpeningValues(); }} /></div></label>}
+          {!selectedWindow && <><fieldset className="door-toggle"><legend>HINGE SIDE</legend><button type="button" className={openingValues.swing === 'left' ? 'active' : ''} onClick={() => { void saveOpeningValues(changeOpeningValues({ swing: 'left' })); }}>Left</button><button type="button" className={openingValues.swing === 'right' ? 'active' : ''} onClick={() => { void saveOpeningValues(changeOpeningValues({ swing: 'right' })); }}>Right</button></fieldset><fieldset className="door-toggle"><legend>SWING DIRECTION</legend><button type="button" className={openingValues.swingSide === 'in' ? 'active' : ''} onClick={() => { void saveOpeningValues(changeOpeningValues({ swingSide: 'in' })); }}>Inward</button><button type="button" className={openingValues.swingSide === 'out' ? 'active' : ''} onClick={() => { void saveOpeningValues(changeOpeningValues({ swingSide: 'out' })); }}>Outward</button></fieldset></>}
+          <div className="architecture-autosave-status" role="status" aria-live="polite">{saving ? 'Saving changes…' : 'Changes save automatically'}</div>
           <button type="button" className="delete-wall-button" disabled={saving} onClick={() => onDeleteOpening(selectedOpening.id)}>Remove {selectedWindow ? 'window' : 'door'}</button>
         </form>
       ) : selectedWall ? (
-        <form onSubmit={saveWall}>
+        <form onSubmit={(event) => event.preventDefault()}>
           <div className="selected-wall-badge"><span>{exterior ? 'EXTERIOR' : 'INTERIOR'}</span><strong>{selectedWall.id}</strong></div>
           <div className="wall-drag-hint"><span>↔</span><p><strong>{exterior ? 'Drag corners or edge' : 'Drag wall or either endpoint'}</strong>Measurements update live and save when released.</p></div>
           <div className="opening-actions"><button type="button" className="add-door-button" disabled={loading || saving} onClick={() => onAddDoor(selectedWall.id)}>＋ Add door</button><button type="button" className="add-window-button" disabled={loading || saving} onClick={() => onAddWindow(selectedWall.id)}>＋ Add window</button></div>
           {exterior && <div className="exterior-corner-actions"><button type="button" onClick={() => onAddExteriorCorner(selectedWall.id)}>＋ Add corner</button><button type="button" onClick={() => onRemoveExteriorCorner(selectedWall.id, 'start')}>− Start corner</button><button type="button" onClick={() => onRemoveExteriorCorner(selectedWall.id, 'end')}>− End corner</button></div>}
-          <label className="dimension-control"><span>LENGTH · METERS <small>Start fixed for exact edits</small></span><div><input aria-label="Wall length slider" type="range" min="0.1" max="30" step="0.01" value={wallValues.length} onChange={(event) => changeWallValue('length', Number(event.target.value))} /><input aria-label="Exact wall length" type="number" min="0.1" max="30" step="0.01" value={wallValues.length} onChange={(event) => changeWallValue('length', Number(event.target.value))} /></div></label>
-          <label className="dimension-control"><span>THICKNESS · METERS</span><div><input aria-label="Wall thickness slider" type="range" min="0.05" max="0.5" step="0.01" value={wallValues.thickness} onChange={(event) => changeWallValue('thickness', Number(event.target.value))} /><input aria-label="Exact wall thickness" type="number" min="0.05" max="0.5" step="0.01" value={wallValues.thickness} onChange={(event) => changeWallValue('thickness', Number(event.target.value))} /></div></label>
-          <label className="dimension-control"><span>HEIGHT · METERS</span><div><input aria-label="Wall height slider" type="range" min="1.8" max="6" step="0.01" value={wallValues.height} onChange={(event) => changeWallValue('height', Number(event.target.value))} /><input aria-label="Exact wall height" type="number" min="1.8" max="6" step="0.01" value={wallValues.height} onChange={(event) => changeWallValue('height', Number(event.target.value))} /></div></label>
+          <label className="dimension-control"><span>LENGTH · METERS <small>Start fixed for exact edits</small></span><div><input aria-label="Wall length slider" type="range" min="0.1" max="30" step="0.01" value={wallValues.length} onChange={(event) => changeWallValue('length', Number(event.target.value))} onPointerUp={() => { void saveWallValues(); }} onKeyUp={() => { void saveWallValues(); }} /><input aria-label="Exact wall length" type="number" min="0.1" max="30" step="0.01" value={wallValues.length} onChange={(event) => changeWallValue('length', Number(event.target.value))} onKeyDown={blurOnEnter} onBlur={() => { void saveWallValues(); }} /></div></label>
+          <label className="dimension-control"><span>THICKNESS · METERS</span><div><input aria-label="Wall thickness slider" type="range" min="0.05" max="0.5" step="0.01" value={wallValues.thickness} onChange={(event) => changeWallValue('thickness', Number(event.target.value))} onPointerUp={() => { void saveWallValues(); }} onKeyUp={() => { void saveWallValues(); }} /><input aria-label="Exact wall thickness" type="number" min="0.05" max="0.5" step="0.01" value={wallValues.thickness} onChange={(event) => changeWallValue('thickness', Number(event.target.value))} onKeyDown={blurOnEnter} onBlur={() => { void saveWallValues(); }} /></div></label>
+          <label className="dimension-control"><span>HEIGHT · METERS</span><div><input aria-label="Wall height slider" type="range" min="1.8" max="6" step="0.01" value={wallValues.height} onChange={(event) => changeWallValue('height', Number(event.target.value))} onPointerUp={() => { void saveWallValues(); }} onKeyUp={() => { void saveWallValues(); }} /><input aria-label="Exact wall height" type="number" min="1.8" max="6" step="0.01" value={wallValues.height} onChange={(event) => changeWallValue('height', Number(event.target.value))} onKeyDown={blurOnEnter} onBlur={() => { void saveWallValues(); }} /></div></label>
           <div className="wall-coordinate-readout"><span>START</span><strong>{selectedWall.start.x.toFixed(2)}, {selectedWall.start.y.toFixed(2)}</strong><span>END</span><strong>{selectedWall.end.x.toFixed(2)}, {selectedWall.end.y.toFixed(2)}</strong></div>
-          <button className="place-object" disabled={loading || saving}>{saving ? 'Saving…' : 'Apply wall dimensions'}</button>
+          <div className="architecture-autosave-status" role="status" aria-live="polite">{saving ? 'Saving changes…' : 'Changes save automatically'}</div>
           {!exterior && <button type="button" className="delete-wall-button" disabled={saving} onClick={() => onDeleteWall(selectedWall.id)}>Remove interior wall</button>}
         </form>
       ) : (
@@ -1094,10 +1098,10 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
             <button type="button" className={`draw-wall-button ${drawingWall ? 'active' : ''}`} onClick={() => onDrawingWall(!drawingWall)}>{drawingWall ? '× Cancel wall drawing' : '＋ Add interior wall'}</button>
             {drawingWall && <p className="tool-instruction">Click a start point, then an end point. Walls snap to corners, edges, the grid, horizontal, and vertical lines.</p>}
           </div>
-          <form onSubmit={resize}>
-            <fieldset className="apartment-dimensions"><legend>OVERALL DIMENSIONS · METERS</legend><label className="dimension-control"><span>W · WIDTH</span><div><input aria-label="Apartment width slider" type="range" min="2" max="30" step="0.01" value={width} onChange={(event) => changeApartmentValue('width', Number(event.target.value))} /><input aria-label="Exact apartment width" type="number" min="2" max="30" step="0.01" value={width} onChange={(event) => changeApartmentValue('width', Number(event.target.value))} /></div></label><label className="dimension-control"><span>D · DEPTH</span><div><input aria-label="Apartment depth slider" type="range" min="2" max="30" step="0.01" value={depth} onChange={(event) => changeApartmentValue('depth', Number(event.target.value))} /><input aria-label="Exact apartment depth" type="number" min="2" max="30" step="0.01" value={depth} onChange={(event) => changeApartmentValue('depth', Number(event.target.value))} /></div></label><label className="dimension-control"><span>H · HEIGHT</span><div><input aria-label="Apartment height slider" type="range" min="1.8" max="6" step="0.01" value={height} onChange={(event) => changeApartmentValue('height', Number(event.target.value))} /><input aria-label="Exact apartment height" type="number" min="1.8" max="6" step="0.01" value={height} onChange={(event) => changeApartmentValue('height', Number(event.target.value))} /></div></label></fieldset>
+          <form onSubmit={(event) => event.preventDefault()}>
+            <fieldset className="apartment-dimensions"><legend>OVERALL DIMENSIONS · METERS</legend><label className="dimension-control"><span>W · WIDTH</span><div><input aria-label="Apartment width slider" type="range" min="2" max="30" step="0.01" value={width} onChange={(event) => changeApartmentValue('width', Number(event.target.value))} onPointerUp={() => { void saveApartmentValues(); }} onKeyUp={() => { void saveApartmentValues(); }} /><input aria-label="Exact apartment width" type="number" min="2" max="30" step="0.01" value={width} onChange={(event) => changeApartmentValue('width', Number(event.target.value))} onKeyDown={blurOnEnter} onBlur={() => { void saveApartmentValues(); }} /></div></label><label className="dimension-control"><span>D · DEPTH</span><div><input aria-label="Apartment depth slider" type="range" min="2" max="30" step="0.01" value={depth} onChange={(event) => changeApartmentValue('depth', Number(event.target.value))} onPointerUp={() => { void saveApartmentValues(); }} onKeyUp={() => { void saveApartmentValues(); }} /><input aria-label="Exact apartment depth" type="number" min="2" max="30" step="0.01" value={depth} onChange={(event) => changeApartmentValue('depth', Number(event.target.value))} onKeyDown={blurOnEnter} onBlur={() => { void saveApartmentValues(); }} /></div></label><label className="dimension-control"><span>H · HEIGHT</span><div><input aria-label="Apartment height slider" type="range" min="1.8" max="6" step="0.01" value={height} onChange={(event) => changeApartmentValue('height', Number(event.target.value))} onPointerUp={() => { void saveApartmentValues(); }} onKeyUp={() => { void saveApartmentValues(); }} /><input aria-label="Exact apartment height" type="number" min="1.8" max="6" step="0.01" value={height} onChange={(event) => changeApartmentValue('height', Number(event.target.value))} onKeyDown={blurOnEnter} onBlur={() => { void saveApartmentValues(); }} /></div></label></fieldset>
             <div className="footprint-preview"><div className="apartment-preview-stage"><div className="apartment-preview-box" style={previewStyle} /></div><span>{width.toFixed(2)} × {depth.toFixed(2)} × {height.toFixed(2)} m · {(width * depth).toFixed(1)} m²</span></div>
-            <button className="place-object" disabled={loading || saving}>{saving ? 'Resizing…' : 'Apply apartment size'}</button>
+            <div className="architecture-autosave-status" role="status" aria-live="polite">{saving ? 'Saving changes…' : 'Changes save automatically'}</div>
           </form>
         </>
       )}
