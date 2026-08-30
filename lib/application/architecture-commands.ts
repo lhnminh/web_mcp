@@ -75,7 +75,7 @@ const exteriorLoopError = (walls: WallElement[]) => {
 };
 
 const findOpeningPlacement = (architecture: ArchitecturalElement[], wall: WallElement, preferredWidth: number, minimumWidth = preferredWidth) => {
-  const cornerClearance = 0.1;
+  const cornerClearance = 0;
   const length = wallLength(wall);
   const openings = architecture.filter((element): element is OpeningElement => element.kind === 'opening' && element.wallId === wall.id).sort((a, b) => a.offset - b.offset);
   const gaps: Array<{ start: number; end: number }> = [];
@@ -235,7 +235,7 @@ const validateOpening = (scene: SceneDocument, opening: OpeningElement, excludin
   const wall = scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === opening.wallId);
   if (!wall) return { ok: false, code: 'NOT_FOUND', message: 'The opening’s parent wall was not found.' };
   const maximumWidth = opening.openingType === 'window' ? 30 : 3;
-  if (opening.width < 0.5 || opening.width > maximumWidth || opening.offset < 0.1 || opening.offset + opening.width > wallLength(wall) - 0.1) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: `${opening.openingType === 'window' ? 'Windows' : 'Doors'} must be 0.50–${maximumWidth.toFixed(2)} m wide and remain at least 0.10 m from wall corners.` };
+  if (opening.width < 0.5 || opening.width > maximumWidth || opening.offset < 0 || opening.offset + opening.width > wallLength(wall)) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: `${opening.openingType === 'window' ? 'Windows' : 'Doors'} must be 0.50–${maximumWidth.toFixed(2)} m wide and fit within the selected wall.` };
   const minimumHeight = opening.openingType === 'window' ? 0.3 : 1.8;
   if (opening.height < minimumHeight || opening.sillHeight < 0 || opening.sillHeight + opening.height > wall.height) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: 'Opening height and sill height must fit within the selected wall.' };
   if (scene.architecture.some((element) => element.kind === 'opening' && element.id !== excludingId && element.wallId === opening.wallId && opening.offset < element.offset + element.width && opening.offset + opening.width > element.offset)) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: 'Doors and windows cannot overlap.' };
@@ -257,7 +257,12 @@ export function updateOpeningCommand(scene: SceneDocument, openingId: string, pa
   if (opening.openingType === 'door' && normalizedPatch.sillHeight !== undefined && normalizedPatch.sillHeight !== 0) return failure('INVALID_INPUT', 'Doors must have a sill height of zero.');
   let nextOpening = { ...opening, ...normalizedPatch };
   if (![nextOpening.offset, nextOpening.width, nextOpening.height, nextOpening.sillHeight].every(Number.isFinite)) return failure('INVALID_INPUT', 'Opening values must be finite numbers.');
-  const onlyMoving = Object.keys(normalizedPatch).length === 1 && normalizedPatch.offset !== undefined;
+  const onlyMoving = normalizedPatch.offset !== undefined
+    && (normalizedPatch.width === undefined || normalizedPatch.width === opening.width)
+    && (normalizedPatch.height === undefined || normalizedPatch.height === opening.height)
+    && (normalizedPatch.sillHeight === undefined || normalizedPatch.sillHeight === opening.sillHeight)
+    && (normalizedPatch.swing === undefined || normalizedPatch.swing === opening.swing)
+    && (normalizedPatch.swingSide === undefined || normalizedPatch.swingSide === opening.swingSide);
   const collision = onlyMoving ? overlappingOpening(scene, nextOpening, openingId) : undefined;
   if (collision) {
     const startedOnLeft = opening.offset + opening.width / 2 <= collision.offset + collision.width / 2;

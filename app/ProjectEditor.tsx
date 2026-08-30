@@ -994,10 +994,10 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
   const [height, setHeight] = useState(() => walls[0]?.height ?? 2.74);
   const [saving, setSaving] = useState(false);
   const [wallValues, setWallValues] = useState(() => selectedWall ? { length: wallLength(selectedWall), thickness: selectedWall.thickness, height: selectedWall.height } : { length: 0, thickness: 0.12, height: 2.74 });
-  const [openingValues, setOpeningValues] = useState(() => selectedOpening ? { offset: selectedOpening.offset, width: selectedOpening.width, height: selectedOpening.height, sillHeight: selectedOpening.sillHeight, swing: selectedOpening.swing ?? 'left', swingSide: selectedOpening.swingSide ?? 'in' } : { offset: 0.1, width: 0.91, height: 2.03, sillHeight: 0, swing: 'left' as const, swingSide: 'in' as const });
+  const [openingValues, setOpeningValues] = useState(() => selectedOpening ? { offset: selectedOpening.offset, width: selectedOpening.width, height: selectedOpening.height, sillHeight: selectedOpening.sillHeight, swing: selectedOpening.swing ?? 'left', swingSide: selectedOpening.swingSide ?? 'in' } : { offset: 0, width: 0.91, height: 2.03, sillHeight: 0, swing: 'left' as const, swingSide: 'in' as const });
   const selectedWindow = selectedOpening?.openingType === 'window';
   const exterior = selectedWall ? isExteriorWall(selectedWall, bounds, architecture) : false;
-  const openingClearance = 0.1;
+  const openingClearance = 0;
   const selectedWallLength = selectedWall ? wallLength(selectedWall) : 0;
   const openingHeightMinimum = selectedWindow ? 0.3 : 1.8;
   // Slider tracks stay stable when a related opening dimension changes. The
@@ -1291,7 +1291,8 @@ function snapWallEnd(start: Point2, raw: Point2, architecture: ArchitecturalElem
 
 type WallEndpoint = 'start' | 'end';
 type WallDragState = { wallId: string; mode: 'endpoint' | 'edge'; endpoint?: WallEndpoint; pointerId: number; pointerStart: Point2; originStart: Point2; originEnd: Point2; start: Point2; end: Point2 };
-type DoorDragState = { openingId: string; pointerId: number; offset: number };
+type DoorDragState = { openingId: string; pointerId: number; pointerStart: Point2; originOffset: number; offset: number };
+const openingDragThreshold = 0.02;
 
 function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId, selectedOpeningId, selectedRoomId, drawingWall, onSelectWall, onSelectOpening, onSelectRoom, onAddWall, onUpdateWall, onUpdateOpening }: { architecture: ArchitecturalElement[]; bounds: ReturnType<typeof getArchitectureBounds>; editMode: EditMode; selectedWallId: string; selectedOpeningId: string; selectedRoomId: string; drawingWall: boolean; onSelectWall: (id: string) => void; onSelectOpening: (id: string, wallId: string) => void; onSelectRoom: (id: string) => void; onAddWall: (start: Point2, end: Point2) => Promise<unknown>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end'>>) => Promise<unknown>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset'>>) => Promise<unknown> }) {
   const [draftStart, setDraftStart] = useState<Point2 | null>(null);
@@ -1362,15 +1363,15 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
     return { ...current, [endpoint]: point };
   };
 
-  const doorOffsetAtPoint = (opening: OpeningElement, raw: Point2) => {
+  const doorOffsetAtPoint = (opening: OpeningElement, drag: DoorDragState, raw: Point2) => {
     const wall = walls.find((candidate) => candidate.id === opening.wallId);
     if (!wall) return opening.offset;
     const dx = wall.end.x - wall.start.x;
     const dy = wall.end.y - wall.start.y;
     const length = wallLength(wall);
-    const projectedCenter = ((raw.x - wall.start.x) * dx + (raw.y - wall.start.y) * dy) / length;
-    const offset = Math.round((projectedCenter - opening.width / 2) * 20) / 20;
-    return Math.max(0.1, Math.min(length - opening.width - 0.1, offset));
+    const projectedDistance = ((raw.x - drag.pointerStart.x) * dx + (raw.y - drag.pointerStart.y) * dy) / length;
+    const offset = Math.round((drag.originOffset + projectedDistance) * 20) / 20;
+    return Math.max(0, Math.min(length - opening.width, offset));
   };
 
   const pointerMove = (event: PointerEvent<SVGSVGElement>) => {
@@ -1384,7 +1385,11 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
     if (doorDrag && event.pointerId === doorDrag.pointerId) {
       event.preventDefault();
       const opening = openings.find((candidate) => candidate.id === doorDrag.openingId);
-      if (opening) setDoorDrag((current) => current ? { ...current, offset: doorOffsetAtPoint(opening, point) } : current);
+      if (opening) setDoorDrag((current) => {
+        if (!current) return current;
+        const offset = doorOffsetAtPoint(opening, current, point);
+        return { ...current, offset: Math.abs(offset - current.originOffset) < openingDragThreshold ? current.originOffset : offset };
+      });
       return;
     }
     if (drawingWall && draftStart) setDraftEnd(snapWallEnd(draftStart, point, architecture, bounds));
@@ -1431,7 +1436,8 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
     event.stopPropagation();
     if (selectedOpeningId !== opening.id) onSelectOpening(opening.id, opening.wallId);
     event.currentTarget.setPointerCapture(event.pointerId);
-    setDoorDrag({ openingId: opening.id, pointerId: event.pointerId, offset: opening.offset });
+    const pointerStart = pointFromEvent(event);
+    if (pointerStart) setDoorDrag({ openingId: opening.id, pointerId: event.pointerId, pointerStart, originOffset: opening.offset, offset: opening.offset });
   };
 
   const beginDoorHandleDrag = (event: PointerEvent<SVGCircleElement>, opening: OpeningElement) => {
@@ -1439,7 +1445,8 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
     event.stopPropagation();
     if (selectedOpeningId !== opening.id) onSelectOpening(opening.id, opening.wallId);
     event.currentTarget.setPointerCapture(event.pointerId);
-    setDoorDrag({ openingId: opening.id, pointerId: event.pointerId, offset: opening.offset });
+    const pointerStart = pointFromEvent(event);
+    if (pointerStart) setDoorDrag({ openingId: opening.id, pointerId: event.pointerId, pointerStart, originOffset: opening.offset, offset: opening.offset });
   };
 
   const finishInteraction = async (event: PointerEvent<SVGSVGElement>) => {
@@ -1461,7 +1468,8 @@ function ArchitecturePlanLayer({ architecture, bounds, editMode, selectedWallId,
       event.preventDefault();
       const opening = openings.find((candidate) => candidate.id === doorDrag.openingId);
       if (opening) {
-        const offset = doorOffsetAtPoint(opening, point);
+        const proposedOffset = doorOffsetAtPoint(opening, doorDrag, point);
+        const offset = Math.abs(proposedOffset - doorDrag.originOffset) < openingDragThreshold ? doorDrag.originOffset : proposedOffset;
         setDoorDrag({ ...doorDrag, offset });
         if (Math.abs(offset - opening.offset) > 0.001) await onUpdateOpening(opening.id, { offset });
       }

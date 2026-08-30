@@ -471,6 +471,10 @@ test('shared architecture commands cover room, wall, corner, and opening action 
   const addedOpening = architectureCommandsModule.addOpeningCommand(shell, { openingType: 'window', wallId: 'wall-north', width: 1.2, createId: () => 'window-new' });
   assert.equal(addedOpening.ok, true);
   assert.equal(addedOpening.data.openingId, 'window-new');
+  const openingAtWallStart = architectureCommandsModule.updateOpeningCommand(addedOpening.scene, 'window-new', { offset: 0 });
+  assert.equal(openingAtWallStart.ok, true, 'an opening may touch the wall start');
+  const openingAtWallEnd = architectureCommandsModule.updateOpeningCommand(addedOpening.scene, 'window-new', { offset: 3.8 });
+  assert.equal(openingAtWallEnd.ok, true, 'an opening may touch the wall end');
   const longWindowScene = { ...shell, architecture: shell.architecture.map((element) => element.id === 'wall-north' ? { ...element, end: { x: 30, y: 0 } } : element) };
   const wideWindow = architectureCommandsModule.addOpeningCommand(longWindowScene, { openingType: 'window', wallId: 'wall-north', width: 29.79, createId: () => 'window-wide' });
   assert.equal(wideWindow.ok, true);
@@ -479,7 +483,7 @@ test('shared architecture commands cover room, wall, corner, and opening action 
     { id: 'door-touch', kind: 'opening', openingType: 'door', wallId: 'wall-north', offset: 1, width: 1, height: 2.03, sillHeight: 0, swing: 'left', swingSide: 'in' },
     { id: 'window-touch', kind: 'opening', openingType: 'window', wallId: 'wall-north', offset: 3.25, width: 1, height: 1.2, sillHeight: 0.9 },
   ] };
-  const touchingWindow = architectureCommandsModule.updateOpeningCommand(touchingOpeningsScene, 'window-touch', { offset: 1.5 });
+  const touchingWindow = architectureCommandsModule.updateOpeningCommand(touchingOpeningsScene, 'window-touch', { offset: 1.5, width: 1, height: 1.2, sillHeight: 0.9 });
   assert.equal(touchingWindow.ok, true, 'a window may touch a door without a gap');
   assert.equal(touchingWindow.scene.architecture.find((element) => element.id === 'window-touch').offset, 2, 'a dropped window snaps to the side it started on');
   const updatedOpening = architectureCommandsModule.updateOpeningCommand(addedOpening.scene, 'window-new', { sillHeight: 1, height: 1 });
@@ -492,6 +496,15 @@ test('shared architecture commands cover room, wall, corner, and opening action 
   const removedOpening = architectureCommandsModule.removeOpeningCommand(updatedOpening.scene, 'window-new');
   assert.equal(removedOpening.ok, true);
   assert.equal(removedOpening.scene.architecture.some((element) => element.id === 'window-new'), false);
+});
+
+test('opening drags preserve the grab point instead of treating every click as the opening center', () => {
+  const editor = readFileSync(resolve(root, 'app/ProjectEditor.tsx'), 'utf8');
+  assert.match(editor, /type DoorDragState = \{ openingId: string; pointerId: number; pointerStart: Point2; originOffset: number; offset: number \}/);
+  assert.match(editor, /const projectedDistance = \(\(raw\.x - drag\.pointerStart\.x\) \* dx \+ \(raw\.y - drag\.pointerStart\.y\) \* dy\) \/ length;/);
+  assert.match(editor, /drag\.originOffset \+ projectedDistance/);
+  assert.match(editor, /const openingDragThreshold = 0\.02;/);
+  assert.match(editor, /Math\.abs\(proposedOffset - doorDrag\.originOffset\) < openingDragThreshold \? doorDrag\.originOffset : proposedOffset/);
 });
 
 test('editor tools validate inputs before invoking application commands', async () => {
