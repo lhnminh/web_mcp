@@ -453,6 +453,9 @@ test('shared architecture commands cover room, wall, corner, and opening action 
   const updatedWall = architectureCommandsModule.updateWallCommand(addedWall.scene, 'wall-divider', { thickness: 0.2, height: 3 });
   assert.equal(updatedWall.ok, true);
   assert.equal(updatedWall.scene.architecture.find((element) => element.id === 'wall-divider').thickness, 0.2);
+  const thickWall = architectureCommandsModule.updateWallCommand(updatedWall.scene, 'wall-divider', { thickness: 0.75 });
+  assert.equal(thickWall.ok, true);
+  assert.equal(thickWall.scene.architecture.find((element) => element.id === 'wall-divider').thickness, 0.75);
   const removedWall = architectureCommandsModule.removeWallCommand(updatedWall.scene, 'wall-divider');
   assert.equal(removedWall.ok, true);
   const exteriorRemoval = architectureCommandsModule.removeWallCommand(shell, 'wall-north');
@@ -468,6 +471,9 @@ test('shared architecture commands cover room, wall, corner, and opening action 
   const addedOpening = architectureCommandsModule.addOpeningCommand(shell, { openingType: 'window', wallId: 'wall-north', width: 1.2, createId: () => 'window-new' });
   assert.equal(addedOpening.ok, true);
   assert.equal(addedOpening.data.openingId, 'window-new');
+  const wideWindow = architectureCommandsModule.addOpeningCommand(shell, { openingType: 'window', wallId: 'wall-south', width: 4.5, createId: () => 'window-wide' });
+  assert.equal(wideWindow.ok, true);
+  assert.equal(wideWindow.scene.architecture.find((element) => element.id === 'window-wide').width, 4.5);
   const updatedOpening = architectureCommandsModule.updateOpeningCommand(addedOpening.scene, 'window-new', { sillHeight: 1, height: 1 });
   assert.equal(updatedOpening.ok, true);
   const partialAdapterOpening = architectureCommandsModule.updateOpeningCommand(updatedOpening.scene, 'window-new', { offset: 2, width: undefined, height: undefined, sillHeight: undefined, swing: undefined, swingSide: undefined });
