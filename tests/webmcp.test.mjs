@@ -477,6 +477,9 @@ test('shared architecture commands cover room, wall, corner, and opening action 
   assert.equal(wideWindow.scene.architecture.find((element) => element.id === 'window-wide').width, 29.79);
   const updatedOpening = architectureCommandsModule.updateOpeningCommand(addedOpening.scene, 'window-new', { sillHeight: 1, height: 1 });
   assert.equal(updatedOpening.ok, true);
+  const overlappingDoor = architectureCommandsModule.addOpeningCommand(updatedOpening.scene, { openingType: 'door', wallId: 'wall-north', offset: 2, width: 0.91, createId: () => 'door-overlap' });
+  assert.equal(overlappingDoor.ok, true);
+  assert.match(overlappingDoor.message, /Warning: This opening overlaps another door or window/);
   const partialAdapterOpening = architectureCommandsModule.updateOpeningCommand(updatedOpening.scene, 'window-new', { offset: 2, width: undefined, height: undefined, sillHeight: undefined, swing: undefined, swingSide: undefined });
   assert.equal(partialAdapterOpening.ok, true);
   assert.equal(partialAdapterOpening.scene.architecture.find((element) => element.id === 'window-new').width, 1.2);

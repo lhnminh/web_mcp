@@ -90,12 +90,12 @@ test('architecture property edits preview live and save without apply buttons', 
   for (const label of ['Apply apartment size', 'Apply wall dimensions', 'Apply window changes', 'Apply door changes']) {
     assert.equal(editor.includes(label), false, `${label} should not be required`);
   }
-  assert.match(editor, /aria-label="Apartment width slider"[\s\S]*?onPointerUp=\{\(\) => \{ void saveApartmentValues\(\); \}\}[\s\S]*?onKeyUp=\{\(\) => \{ void saveApartmentValues\(\); \}\}/);
-  assert.match(editor, /aria-label="Exact apartment width"[\s\S]*?onKeyDown=\{blurOnEnter\}[\s\S]*?onBlur=\{\(\) => \{ void saveApartmentValues\(\); \}\}/);
-  assert.match(editor, /aria-label="Wall length slider"[\s\S]*?onPointerUp=\{\(\) => \{ void saveWallValues\(\); \}\}/);
-  assert.match(editor, /aria-label="Exact wall length"[\s\S]*?onBlur=\{\(\) => \{ void saveWallValues\(\); \}\}/);
-  assert.match(editor, /position slider`\}[\s\S]*?onPointerUp=\{\(\) => \{ void saveOpeningValues\(\); \}\}/);
-  assert.match(editor, /Exact \$\{selectedWindow \? 'window' : 'door'\} position`\}[\s\S]*?onBlur=\{\(\) => \{ void saveOpeningValues\(\); \}\}/);
+  assert.match(editor, /aria-label="Apartment width slider"[\s\S]*?const next = changeApartmentValue\('width', Number\(event\.target\.value\)\); void saveApartmentValues\(next\)/);
+  assert.match(editor, /aria-label="Exact apartment width"[\s\S]*?const next = changeApartmentValue\('width', Number\(event\.target\.value\)\); void saveApartmentValues\(next\)/);
+  assert.match(editor, /aria-label="Wall length slider"[\s\S]*?const next = changeWallValue\('length', Number\(event\.target\.value\)\); void saveWallValues\(next\)/);
+  assert.match(editor, /aria-label="Exact wall length"[\s\S]*?const next = changeWallValue\('length', Number\(event\.target\.value\)\); void saveWallValues\(next\)/);
+  assert.match(editor, /position slider`\}[\s\S]*?const next = changeOpeningValues\(\{ offset: Math\.min\(Number\(event\.target\.value\), positionValueMaximum\) \}\); void saveOpeningValues\(next\)/);
+  assert.match(editor, /Exact \$\{selectedWindow \? 'window' : 'door'\} position`\}[\s\S]*?const next = changeOpeningValues\(\{ offset: Math\.min\(Number\(event\.target\.value\), positionValueMaximum\) \}\); void saveOpeningValues\(next\)/);
   assert.match(editor, /saveOpeningValues\(changeOpeningValues\(\{ swing: 'left' \}\)\)/);
   assert.equal(editor.includes('architecture-autosave-status'), false);
   assert.equal(editor.includes('Changes save automatically.'), false);
@@ -120,6 +120,8 @@ test('saving one furniture size cannot reset another furniture item with a pendi
   assert.match(editor, /dimensions: pendingObjectDimensions\.current\.get\(element\.id\) \?\? item\.dimensions/);
   assert.match(editor, /pendingObjectDimensions\.current\.set\(objectId, dimensions\);/);
   assert.match(editor, /if \(transform\.dimensions && JSON\.stringify\(pendingObjectDimensions\.current\.get\(objectId\)\) === JSON\.stringify\(transform\.dimensions\)\) pendingObjectDimensions\.current\.delete\(objectId\);[\s\S]*?syncProject\(result\)/);
+  assert.match(editor, /onResize\(selectedObject\.id, next\);[\s\S]*?onCommitResize\(selectedObject\.id, next, resizeStart\.current \?\? selectedObject\.dimensions\)/);
+  assert.match(editor, /dimensions \}, \{ allowOverlap: true \}\)/);
 });
 
 test('architecture saves wait for earlier edits before calculating the next wall or opening command', () => {
