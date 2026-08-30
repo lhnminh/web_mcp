@@ -214,7 +214,7 @@ export default function ProjectsDashboard() {
 
       <section className="dashboard-content">
         <div className="dashboard-intro">
-          <div><span className="eyebrow">YOUR WORKSPACE</span><h1>Your apartments</h1><p>Create a plan or return to an apartment you have already started. These projects are saved privately in this browser.</p></div>
+          <div><span className="eyebrow">YOUR WORKSPACE</span><h1>Your apartments</h1><p>Create a plan or return to an apartment you have already started.</p></div>
           <button className="create-project-button" onClick={createProject} disabled={creating || loading}>{creating ? 'Creating…' : loading ? 'Loading…' : '＋ Create apartment'}</button>
         </div>
 

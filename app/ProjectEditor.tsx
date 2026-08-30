@@ -904,7 +904,6 @@ function Header({ projectName, onRename, resetting, onReset }: { projectName: st
         <span className="saved"><i /> Saved just now</span>
         <button className="reset-everything-button" onClick={onReset} disabled={resetting}>{resetting ? 'Resetting…' : '↺ Reset everything'}</button>
         {/* Comparison is temporarily hidden while the hackathon demo focuses on 2D, 3D, and sunlight. */}
-        <button className="avatar" aria-label="Browser profile">BR</button>
       </div>
     </header>
   );
@@ -1124,7 +1123,6 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
           </form>
         </>
       )}
-      <div className="placement-note"><span>01</span><p>Geometry is stored in meters and rendered from the same source in 2D and 3D.</p></div>
     </aside>
   );
 }
@@ -1829,7 +1827,6 @@ function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onDeselect, onR
         {error && <p className="object-form-message error" role="alert">{error}</p>}
         {success && <p className="object-form-message success" role="status">✓ {success}</p>}
       </form>
-      <div className="placement-note"><span>01</span><p>New objects are centered in the selected room and saved to the active layout.</p></div>
     </aside>
   );
 }
