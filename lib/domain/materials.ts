@@ -74,7 +74,7 @@ const furnitureParts: Record<string, readonly FinishPartDefinition[]> = {
   stove: [part('body', 'Stove body', 'metal', '#4e5e61'), part('cooktop', 'Cooktop', 'metal', '#273230'), part('oven', 'Oven door', 'surface', '#dce4df')],
   sink: [part('cabinet', 'Sink cabinet', 'wood', MATERIAL_PALETTE.wood), part('basin', 'Sink basin', 'surface', '#dce4df')],
   fridge: [part('body', 'Fridge body', 'metal', '#dce4df'), part('doors', 'Fridge doors', 'surface', '#eef1e9')],
-  toilet: [part('tank', 'Toilet tank', 'surface', '#edf0e8'), part('base', 'Toilet base', 'surface', '#edf0e8')],
+  toilet: [part('tank', 'Toilet tank', 'surface', '#edf0e8'), part('base', 'Toilet pedestal', 'surface', '#edf0e8'), part('seat', 'Toilet seat', 'surface', '#f7f6ec'), part('lid', 'Toilet lid', 'surface', '#eef1e9')],
   shower: [part('tray', 'Shower tray', 'surface', '#dce4df'), part('glass', 'Shower glass', 'surface', '#a9d3df')],
   bathtub: [part('shell', 'Bathtub shell', 'surface', '#dce4df'), part('basin', 'Bathtub basin', 'surface', '#f7f6ec')],
   'washer-dryer': [part('body', 'Washer dryer body', 'metal', '#dce4df'), part('panel', 'Control panel', 'surface', '#eef1e9')],

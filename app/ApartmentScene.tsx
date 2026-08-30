@@ -668,9 +668,12 @@ function Fridge({ item }: { item: SceneObject }) {
 
 function Toilet({ item }: { item: SceneObject }) {
   return <group>
-    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="tank" label="Toilet tank" role="surface" defaultColor="#edf0e8" position={[0, 0.59, -0.22]} size={[0.4, 0.38, 0.22]} radius={0.06} />
-    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="base" label="Toilet base" role="surface" defaultColor="#edf0e8" position={[0, 0.3, 0.1]} size={[0.35, 0.56, 0.48]} radius={0.16} />
-    <mesh position={[0, 0.59, 0.11]} rotation={[-Math.PI / 2, 0, 0]}><torusGeometry args={[0.115, 0.035, 14, 28]} /><meshStandardMaterial color="#bcc9c4" roughness={.45} /></mesh>
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="tank" label="Toilet tank" role="surface" defaultColor="#edf0e8" position={[0, 0.59, -0.25]} size={[0.4, 0.38, 0.19]} radius={0.055} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="base" label="Toilet pedestal" role="surface" defaultColor="#edf0e8" position={[0, 0.24, 0.08]} size={[0.3, 0.48, 0.4]} radius={0.14} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="seat" label="Toilet seat" role="surface" defaultColor="#f7f6ec" position={[0, 0.49, 0.12]} size={[0.35, 0.08, 0.47]} radius={0.16} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="lid" label="Toilet lid" role="surface" defaultColor="#eef1e9" position={[0, 0.555, 0.12]} size={[0.33, 0.035, 0.44]} radius={0.15} />
+    <Box position={[0, 0.79, -0.25]} size={[0.095, 0.012, 0.06]} color={palette.brass} radius={0.01} />
+    <Box position={[0, 0.58, -0.07]} size={[0.23, 0.025, 0.035]} color="#b9c5c0" radius={0.01} />
   </group>;
 }
 
