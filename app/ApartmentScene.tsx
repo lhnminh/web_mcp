@@ -616,8 +616,8 @@ function Nightstand({ item, position }: { item: SceneObject; position: [number, 
     <group position={position}>
       <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="body" label="Nightstand body" role="wood" defaultColor={palette.wood} position={[0, 0.36, 0]} size={[0.56, 0.48, 0.46]} radius={0.04} />
       <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="top" label="Nightstand top" role="wood" defaultColor="#cfb998" position={[0, 0.63, 0]} size={[0.56, 0.07, 0.46]} radius={0.025} />
-      {[-0.09, 0.11].map((y) => <Box key={y} position={[0, 0.36 + y, 0.238]} size={[0.48, 0.025, 0.025]} color={palette.darkWood} radius={0.006} />)}
-      {[-0.09, 0.11].map((y) => <mesh key={`${y}-knob`} position={[0, 0.36 + y, 0.265]} castShadow><sphereGeometry args={[0.025, 12, 8]} /><meshStandardMaterial color={palette.brass} metalness={0.7} roughness={0.25} /></mesh>)}
+      {[0.29, 0.47].map((y) => <FinishBox key={`${y}-drawer`} scope="furniture" targetId={item.id} owner={item.name} part="drawers" label="Drawer fronts" role="wood" defaultColor={palette.wood} position={[0, y, 0.238]} size={[0.46, 0.14, 0.018]} radius={0.014} />)}
+      {[0.29, 0.47].map((y) => <mesh key={`${y}-knob`} position={[0, y, 0.255]} castShadow><sphereGeometry args={[0.018, 12, 12]} /><meshStandardMaterial color={palette.brass} metalness={0.45} roughness={0.3} /></mesh>)}
       {[-0.21, 0.21].flatMap((x) => [-0.15, 0.15].map((z) => <Box key={`${x}-${z}`} position={[x, 0.08, z]} size={[0.045, 0.16, 0.045]} color={palette.darkWood} radius={0.014} />))}
     </group>
   );

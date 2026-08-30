@@ -68,7 +68,7 @@ const furnitureParts: Record<string, readonly FinishPartDefinition[]> = {
   dining: [part('tabletop', 'Tabletop', 'wood', MATERIAL_PALETTE.wood), part('table-legs', 'Table legs', 'wood', MATERIAL_PALETTE.darkWood), part('chairs', 'Chairs', 'textile', MATERIAL_PALETTE.sage)],
   bed: [part('base', 'Bed base', 'wood', MATERIAL_PALETTE.darkWood), part('mattress', 'Mattress', 'textile', MATERIAL_PALETTE.linen), part('headboard', 'Headboard', 'textile', MATERIAL_PALETTE.sage), part('pillows', 'Pillows', 'textile', MATERIAL_PALETTE.trim), part('blanket', 'Blanket', 'accent', '#ad7258')],
   chair: [part('seat', 'Seat', 'textile', MATERIAL_PALETTE.rust), part('back', 'Back', 'textile', '#b56f50'), part('arms', 'Arms', 'textile', '#9f5f47')],
-  nightstand: [part('body', 'Nightstand body', 'wood', MATERIAL_PALETTE.wood), part('top', 'Nightstand top', 'wood', '#cfb998')],
+  nightstand: [part('body', 'Nightstand body', 'wood', MATERIAL_PALETTE.wood), part('top', 'Nightstand top', 'wood', '#cfb998'), part('drawers', 'Drawer fronts', 'wood', MATERIAL_PALETTE.wood)],
   bookcase: [part('back', 'Back', 'wood', MATERIAL_PALETTE.darkWood), part('frame', 'Frame', 'wood', MATERIAL_PALETTE.wood), part('shelves', 'Shelves', 'wood', '#b58b65')],
   storage: [part('body', 'Dresser body', 'wood', MATERIAL_PALETTE.wood), part('top', 'Dresser top', 'wood', '#c8b08f'), part('drawers', 'Drawer fronts', 'wood', MATERIAL_PALETTE.wood)],
   stove: [part('body', 'Stove body', 'metal', '#4e5e61'), part('cooktop', 'Cooktop', 'metal', '#273230'), part('oven', 'Oven door', 'surface', '#dce4df')],
