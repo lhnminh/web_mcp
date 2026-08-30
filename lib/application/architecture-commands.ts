@@ -142,10 +142,9 @@ export function updateWallCommand(scene: SceneDocument, wallId: string, patch: W
   const currentWalls = scene.architecture.filter((element): element is WallElement => element.kind === 'wall');
   const exteriorIds = new Set(currentWalls.filter((candidate) => isExteriorWall(candidate, bounds, scene.architecture)).map((candidate) => candidate.id));
   const exterior = exteriorIds.has(wall.id);
-  const warnings: string[] = [];
   const geometryChanged = !samePoint(nextWall.start, wall.start, 0.001) || !samePoint(nextWall.end, wall.end, 0.001);
   const inside = (point: Point2) => point.x >= bounds.minX && point.x <= bounds.maxX && point.y >= bounds.minY && point.y <= bounds.maxY;
-  if (!exterior && geometryChanged && (!inside(nextWall.start) || !inside(nextWall.end))) warnings.push('This interior wall extends outside the apartment.');
+  if (!exterior && geometryChanged && (!inside(nextWall.start) || !inside(nextWall.end))) return failure('GEOMETRY_CONFLICT', 'Interior walls must remain inside the apartment.');
   const movedCorners = exterior && geometryChanged ? [
     ...(samePoint(wall.start, nextWall.start) ? [] : [{ before: wall.start, after: nextWall.start }]),
     ...(samePoint(wall.end, nextWall.end) ? [] : [{ before: wall.end, after: nextWall.end }]),
@@ -159,14 +158,13 @@ export function updateWallCommand(scene: SceneDocument, wallId: string, patch: W
   if (nextWalls.some((candidate) => wallLength(candidate) < 0.1)) return failure('GEOMETRY_CONFLICT', 'Walls must be at least 0.10 m long.');
   if (nextWalls.some((candidate, index) => nextWalls.slice(index + 1).some((other) => (samePoint(candidate.start, other.start) && samePoint(candidate.end, other.end)) || (samePoint(candidate.start, other.end) && samePoint(candidate.end, other.start))))) return failure('GEOMETRY_CONFLICT', 'A wall already exists at that location.');
   const nextWallMap = new Map(nextWalls.map((candidate) => [candidate.id, candidate]));
-  if (scene.architecture.some((element) => element.kind === 'opening' && element.offset + element.width > wallLength(nextWallMap.get(element.wallId) ?? wall) + 0.001)) warnings.push('A door or window extends beyond its wall.');
+  if (scene.architecture.some((element) => element.kind === 'opening' && element.offset + element.width > wallLength(nextWallMap.get(element.wallId) ?? wall) + 0.001)) return failure('OPENING_DOES_NOT_FIT', 'This wall cannot be shorter than its doors or windows.');
   if (exterior && geometryChanged) {
     const perimeterError = exteriorLoopError(nextWalls.filter((candidate) => exteriorIds.has(candidate.id)));
     if (perimeterError) return failure('EXTERIOR_LOOP_INVALID', perimeterError);
   }
   const architecture = scene.architecture.map((element) => element.kind === 'wall' ? nextWallMap.get(element.id) ?? element : element);
-  const message = exterior && geometryChanged ? 'Exterior shape updated.' : 'Wall updated.';
-  return rebuiltResult({ ...scene, architecture }, `${message}${warnings.length ? ` Warning: ${warnings.join(' ')}` : ''}`, { kind: 'wall', entityId: wallId }, { wallId });
+  return rebuiltResult({ ...scene, architecture }, exterior && geometryChanged ? 'Exterior shape updated.' : 'Wall updated.', { kind: 'wall', entityId: wallId }, { wallId });
 }
 
 export function removeWallCommand(scene: SceneDocument, wallId: string): ArchitectureCommandResult {
@@ -223,25 +221,25 @@ export function addOpeningCommand(scene: SceneDocument, input: { openingType: 'd
   if (!wall) return failure('NOT_FOUND', 'The requested wall was not found.');
   const preferredWidth = input.width ?? (input.openingType === 'door' ? 0.91 : 1.2);
   const minimumWidth = input.width ?? (input.openingType === 'door' ? 0.91 : 0.5);
-  const placement = input.offset === undefined ? findOpeningPlacement(scene.architecture, wall, preferredWidth, minimumWidth) ?? { offset: 0.1, width: preferredWidth } : { offset: input.offset, width: preferredWidth };
+  const placement = input.offset === undefined ? findOpeningPlacement(scene.architecture, wall, preferredWidth, minimumWidth) : { offset: input.offset, width: preferredWidth };
+  if (!placement) return failure('OPENING_DOES_NOT_FIT', `This wall does not have enough clear space for the requested ${input.openingType}.`);
   const sillHeight = input.openingType === 'door' ? 0 : input.sillHeight ?? Math.min(0.9, Math.max(0, wall.height - 0.3));
   const height = input.height ?? (input.openingType === 'door' ? Math.min(2.03, wall.height) : Math.min(1.2, wall.height - sillHeight));
   const opening: OpeningElement = { id: (input.createId ?? createEntityId)(input.openingType), kind: 'opening', openingType: input.openingType, wallId: wall.id, offset: placement.offset, width: placement.width, height, sillHeight, ...(input.openingType === 'door' ? { swing: input.swing ?? 'left', swingSide: input.swingSide ?? 'in' } : {}) };
-  const warning = openingWarning(scene, opening);
-  return { ok: true, scene: { ...scene, architecture: [...scene.architecture, opening] }, message: `${input.openingType === 'door' ? 'Door' : 'Window'} added.${warning ? ` Warning: ${warning}` : ''}`, selection: { kind: 'opening', entityId: opening.id, wallId: wall.id }, data: { openingId: opening.id, wallId: wall.id } };
+  const validation = validateOpening(scene, opening);
+  if (validation) return validation;
+  return { ok: true, scene: { ...scene, architecture: [...scene.architecture, opening] }, message: `${input.openingType === 'door' ? 'Door' : 'Window'} added.`, selection: { kind: 'opening', entityId: opening.id, wallId: wall.id }, data: { openingId: opening.id, wallId: wall.id } };
 }
 
-const openingWarning = (scene: SceneDocument, opening: OpeningElement, excludingId?: string) => {
+const validateOpening = (scene: SceneDocument, opening: OpeningElement, excludingId?: string): Extract<ArchitectureCommandResult, { ok: false }> | null => {
   const wall = scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === opening.wallId);
-  if (!wall) return 'The opening’s parent wall was not found.';
+  if (!wall) return { ok: false, code: 'NOT_FOUND', message: 'The opening’s parent wall was not found.' };
   const maximumWidth = opening.openingType === 'window' ? 30 : 3;
-  const warnings: string[] = [];
-  if (opening.width < 0.5 || opening.width > maximumWidth) warnings.push(`${opening.openingType === 'window' ? 'Windows' : 'Doors'} should be 0.50–${maximumWidth.toFixed(2)} m wide.`);
-  if (opening.offset < 0.1 || opening.offset + opening.width > wallLength(wall) - 0.1) warnings.push('This opening extends into a wall corner.');
+  if (opening.width < 0.5 || opening.width > maximumWidth || opening.offset < 0.1 || opening.offset + opening.width > wallLength(wall) - 0.1) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: `${opening.openingType === 'window' ? 'Windows' : 'Doors'} must be 0.50–${maximumWidth.toFixed(2)} m wide and remain at least 0.10 m from wall corners.` };
   const minimumHeight = opening.openingType === 'window' ? 0.3 : 1.8;
-  if (opening.height < minimumHeight || opening.sillHeight < 0 || opening.sillHeight + opening.height > wall.height) warnings.push('Opening height and sill height extend beyond the wall.');
-  if (scene.architecture.some((element) => element.kind === 'opening' && element.id !== excludingId && element.wallId === opening.wallId && opening.offset < element.offset + element.width && opening.offset + opening.width > element.offset)) warnings.push('This opening overlaps another door or window.');
-  return warnings.join(' ');
+  if (opening.height < minimumHeight || opening.sillHeight < 0 || opening.sillHeight + opening.height > wall.height) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: 'Opening height and sill height must fit within the selected wall.' };
+  if (scene.architecture.some((element) => element.kind === 'opening' && element.id !== excludingId && element.wallId === opening.wallId && opening.offset < element.offset + element.width + 0.1 && opening.offset + opening.width + 0.1 > element.offset)) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: 'Doors and windows need at least 0.10 m of separation.' };
+  return null;
 };
 
 export function updateOpeningCommand(scene: SceneDocument, openingId: string, patch: OpeningPatch): ArchitectureCommandResult {
@@ -253,9 +251,10 @@ export function updateOpeningCommand(scene: SceneDocument, openingId: string, pa
   if (opening.openingType === 'door' && normalizedPatch.sillHeight !== undefined && normalizedPatch.sillHeight !== 0) return failure('INVALID_INPUT', 'Doors must have a sill height of zero.');
   const nextOpening = { ...opening, ...normalizedPatch };
   if (![nextOpening.offset, nextOpening.width, nextOpening.height, nextOpening.sillHeight].every(Number.isFinite)) return failure('INVALID_INPUT', 'Opening values must be finite numbers.');
-  const warning = openingWarning(scene, nextOpening, openingId);
+  const validation = validateOpening(scene, nextOpening, openingId);
+  if (validation) return validation;
   const architecture = scene.architecture.map((element) => element.id === openingId ? nextOpening : element);
-  return { ok: true, scene: { ...scene, architecture }, message: `${opening.openingType === 'window' ? 'Window' : 'Door'} updated.${warning ? ` Warning: ${warning}` : ''}`, selection: { kind: 'opening', entityId: openingId, wallId: opening.wallId }, data: { openingId } };
+  return { ok: true, scene: { ...scene, architecture }, message: `${opening.openingType === 'window' ? 'Window' : 'Door'} updated.`, selection: { kind: 'opening', entityId: openingId, wallId: opening.wallId }, data: { openingId } };
 }
 
 export function removeOpeningCommand(scene: SceneDocument, openingId: string): ArchitectureCommandResult {

@@ -75,6 +75,8 @@ export interface FurnitureElement {
   kind: 'furniture';
   catalogItemId: Id;
   roomId: Id;
+  /** Per-item dimensions override the catalog default when a user resizes this furniture. */
+  dimensions?: Size3;
   transform: Transform3;
   /** Desired empty space around the footprint, in meters. */
   clearance: number;

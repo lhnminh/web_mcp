@@ -45,7 +45,7 @@ export async function PATCH(request: Request, context: Context) {
     const nextTransform = body.transform === undefined ? element.transform : applyTransformPatch(element.transform, body.transform);
     const catalogItem = project.scene.catalog.find((item) => item.id === element.catalogItemId);
     if (!catalogItem) return jsonForProfile(profile, { error: 'Furniture catalog item not found' }, { status: 422 });
-    let nextDimensions = catalogItem.dimensions;
+    let nextDimensions = element.dimensions ?? catalogItem.dimensions;
     if (body.dimensions !== undefined) {
       const values = [body.dimensions.width, body.dimensions.depth, body.dimensions.height];
       if (!values.every((value) => typeof value === 'number' && Number.isFinite(value) && value >= 0.1 && value <= 5)) {
@@ -58,13 +58,14 @@ export async function PATCH(request: Request, context: Context) {
       if (candidate.id === element.id) return false;
       const candidateItem = project.scene.catalog.find((item) => item.id === candidate.catalogItemId);
       if (!candidateItem) return false;
-      const other = footprint(candidate.transform.position.x, candidate.transform.position.z, candidate.transform.rotation.y, candidateItem.dimensions.width, candidateItem.dimensions.depth);
+      const otherDimensions = candidate.dimensions ?? candidateItem.dimensions;
+      const other = footprint(candidate.transform.position.x, candidate.transform.position.z, candidate.transform.rotation.y, otherDimensions.width, otherDimensions.depth);
       return bounds.left < other.right && bounds.right > other.left && bounds.top < other.bottom && bounds.bottom > other.top;
     });
     if (collision && body.allowOverlap !== true) return jsonForProfile(profile, { error: `Object overlaps ${collision.id}` }, { status: 422 });
     element.transform = nextTransform;
     element.roomId = nextRoomId;
-    catalogItem.dimensions = nextDimensions;
+    element.dimensions = nextDimensions;
     const result = await updateProject({
       id,
       ownerProfileId: profile.id,
