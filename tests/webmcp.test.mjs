@@ -475,6 +475,12 @@ test('shared architecture commands cover room, wall, corner, and opening action 
   const wideWindow = architectureCommandsModule.addOpeningCommand(longWindowScene, { openingType: 'window', wallId: 'wall-north', width: 29.79, createId: () => 'window-wide' });
   assert.equal(wideWindow.ok, true);
   assert.equal(wideWindow.scene.architecture.find((element) => element.id === 'window-wide').width, 29.79);
+  const touchingOpeningsScene = { ...shell, architecture: [...shell.architecture,
+    { id: 'door-touch', kind: 'opening', openingType: 'door', wallId: 'wall-north', offset: 1, width: 1, height: 2.03, sillHeight: 0, swing: 'left', swingSide: 'in' },
+    { id: 'window-touch', kind: 'opening', openingType: 'window', wallId: 'wall-north', offset: 2.25, width: 1, height: 1.2, sillHeight: 0.9 },
+  ] };
+  const touchingWindow = architectureCommandsModule.updateOpeningCommand(touchingOpeningsScene, 'window-touch', { offset: 2 });
+  assert.equal(touchingWindow.ok, true, 'a window may touch a door without a gap');
   const updatedOpening = architectureCommandsModule.updateOpeningCommand(addedOpening.scene, 'window-new', { sillHeight: 1, height: 1 });
   assert.equal(updatedOpening.ok, true);
   const partialAdapterOpening = architectureCommandsModule.updateOpeningCommand(updatedOpening.scene, 'window-new', { offset: 2, width: undefined, height: undefined, sillHeight: undefined, swing: undefined, swingSide: undefined });

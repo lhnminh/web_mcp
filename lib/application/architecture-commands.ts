@@ -75,16 +75,16 @@ const exteriorLoopError = (walls: WallElement[]) => {
 };
 
 const findOpeningPlacement = (architecture: ArchitecturalElement[], wall: WallElement, preferredWidth: number, minimumWidth = preferredWidth) => {
-  const clearance = 0.1;
+  const cornerClearance = 0.1;
   const length = wallLength(wall);
   const openings = architecture.filter((element): element is OpeningElement => element.kind === 'opening' && element.wallId === wall.id).sort((a, b) => a.offset - b.offset);
   const gaps: Array<{ start: number; end: number }> = [];
-  let cursor = clearance;
+  let cursor = cornerClearance;
   openings.forEach((opening) => {
-    gaps.push({ start: cursor, end: opening.offset - clearance });
-    cursor = Math.max(cursor, opening.offset + opening.width + clearance);
+    gaps.push({ start: cursor, end: opening.offset });
+    cursor = Math.max(cursor, opening.offset + opening.width);
   });
-  gaps.push({ start: cursor, end: length - clearance });
+  gaps.push({ start: cursor, end: length - cornerClearance });
   return gaps.map((gap) => {
     const width = Math.min(preferredWidth, gap.end - gap.start);
     return { width, offset: gap.start + (gap.end - gap.start - width) / 2 };
@@ -238,7 +238,7 @@ const validateOpening = (scene: SceneDocument, opening: OpeningElement, excludin
   if (opening.width < 0.5 || opening.width > maximumWidth || opening.offset < 0.1 || opening.offset + opening.width > wallLength(wall) - 0.1) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: `${opening.openingType === 'window' ? 'Windows' : 'Doors'} must be 0.50–${maximumWidth.toFixed(2)} m wide and remain at least 0.10 m from wall corners.` };
   const minimumHeight = opening.openingType === 'window' ? 0.3 : 1.8;
   if (opening.height < minimumHeight || opening.sillHeight < 0 || opening.sillHeight + opening.height > wall.height) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: 'Opening height and sill height must fit within the selected wall.' };
-  if (scene.architecture.some((element) => element.kind === 'opening' && element.id !== excludingId && element.wallId === opening.wallId && opening.offset < element.offset + element.width + 0.1 && opening.offset + opening.width + 0.1 > element.offset)) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: 'Doors and windows need at least 0.10 m of separation.' };
+  if (scene.architecture.some((element) => element.kind === 'opening' && element.id !== excludingId && element.wallId === opening.wallId && opening.offset < element.offset + element.width && opening.offset + opening.width > element.offset)) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: 'Doors and windows cannot overlap.' };
   return null;
 };
 
