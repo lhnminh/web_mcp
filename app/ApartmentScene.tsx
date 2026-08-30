@@ -79,7 +79,7 @@ const furnitureModelEnvelopes = {
   fridge: { width: 0.91, depth: 0.76, height: 1.78 },
   toilet: { width: 0.4, depth: 0.7, height: 0.78 },
   shower: { width: 0.91, depth: 0.91, height: 2 },
-  bathtub: { width: 1.76, depth: 0.75, height: 0.58 },
+  bathtub: { width: 1.7, depth: 0.75, height: 0.58 },
   'washer-dryer': { width: 0.6, depth: 0.65, height: 0.85 },
   other: { width: 0.8, depth: 0.8, height: 0.8 },
 } as const;
@@ -685,10 +685,10 @@ function Shower({ item }: { item: SceneObject }) {
 
 function Bathtub({ item }: { item: SceneObject }) {
   return <group>
-    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="shell" label="Bathtub base" role="surface" defaultColor="#dce4df" position={[0, 0.06, 0]} size={[1.6, 0.12, 0.5]} radius={0.12} />
-    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="shell" label="Bathtub rail" role="surface" defaultColor="#dce4df" position={[0, 0.25, -0.31]} size={[1.6, 0.38, 0.13]} radius={0.12} />
-    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="shell" label="Bathtub rail" role="surface" defaultColor="#dce4df" position={[0, 0.25, 0.31]} size={[1.6, 0.38, 0.13]} radius={0.12} />
-    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="basin" label="Bathtub basin" role="surface" defaultColor="#f7f6ec" position={[0, 0.135, 0]} size={[1.76, 0.035, 0.48]} radius={0.11} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="shell" label="Bathtub base" role="surface" defaultColor="#dce4df" position={[0, 0.06, 0]} size={[1.7, 0.12, 0.5]} radius={0.025} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="shell" label="Bathtub rail" role="surface" defaultColor="#dce4df" position={[0, 0.25, -0.31]} size={[1.7, 0.38, 0.13]} radius={0.025} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="shell" label="Bathtub rail" role="surface" defaultColor="#dce4df" position={[0, 0.25, 0.31]} size={[1.7, 0.38, 0.13]} radius={0.025} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="basin" label="Bathtub basin" role="surface" defaultColor="#f7f6ec" position={[0, 0.135, 0]} size={[1.7, 0.035, 0.48]} radius={0.025} />
     <Box position={[0, 0.42, -0.3]} size={[0.035, 0.25, 0.035]} color={palette.brass} radius={0.01} />
     <Box position={[0, 0.53, -0.21]} size={[0.035, 0.035, 0.2]} color={palette.brass} radius={0.01} />
   </group>;
