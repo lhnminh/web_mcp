@@ -656,10 +656,13 @@ function Sink({ item }: { item: SceneObject }) {
 
 function Fridge({ item }: { item: SceneObject }) {
   return <group>
-    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="body" label="Fridge body" role="metal" defaultColor="#dce4df" position={[0, 0.89, 0]} size={[0.91, 1.78, 0.76]} radius={0.045} />
-    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="doors" label="Fridge doors" role="surface" defaultColor="#eef1e9" position={[0, 0.9, 0.365]} size={[0.82, 1.68, 0.02]} radius={0.025} />
-    <Box position={[0, 1.18, 0.37]} size={[0.82, 0.02, 0.018]} color="#78929a" radius={0.006} />
-    {[-0.27, 0.27].map((x) => <Box key={x} position={[x, x < 0 ? 0.5 : 1.5, 0.37]} size={[0.028, 0.5, 0.018]} color={palette.charcoal} radius={0.01} />)}
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="body" label="Fridge body" role="metal" defaultColor="#dce4df" position={[0, 0.5925, 0]} size={[0.91, 1.185, 0.76]} radius={0.045} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="body" label="Freezer body" role="metal" defaultColor="#dce4df" position={[0, 1.4975, 0]} size={[0.91, 0.555, 0.76]} radius={0.045} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="doors" label="Fridge door" role="surface" defaultColor="#eef1e9" position={[0, 0.5925, 0.365]} size={[0.82, 1.12, 0.02]} radius={0.025} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="doors" label="Freezer door" role="surface" defaultColor="#eef1e9" position={[0, 1.4975, 0.365]} size={[0.82, 0.49, 0.02]} radius={0.025} />
+    <Box position={[0, 0.89, 0.37]} size={[0.82, 0.02, 0.018]} color="#78929a" radius={0.006} />
+    <Box position={[0.28, 0.49, 0.37]} size={[0.026, 0.46, 0.018]} color={palette.charcoal} radius={0.01} />
+    <Box position={[0.28, 1.47, 0.37]} size={[0.026, 0.22, 0.018]} color={palette.charcoal} radius={0.01} />
   </group>;
 }
 
