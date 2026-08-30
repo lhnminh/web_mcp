@@ -671,7 +671,7 @@ function Toilet({ item }: { item: SceneObject }) {
     <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="tank" label="Toilet tank" role="surface" defaultColor="#edf0e8" position={[0, 0.59, -0.22]} size={[0.4, 0.38, 0.22]} radius={0.06} />
     <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="base" label="Toilet base" role="surface" defaultColor="#edf0e8" position={[0, 0.3, 0.1]} size={[0.35, 0.56, 0.48]} radius={0.16} />
     <mesh position={[0, 0.59, 0.11]} rotation={[-Math.PI / 2, 0, 0]}><torusGeometry args={[0.115, 0.014, 14, 28]} /><meshStandardMaterial color="#bcc9c4" roughness={.45} /></mesh>
-    <mesh position={[0, 0.61, -0.095]} scale={[0.14, 0.15, 0.012]}><sphereGeometry args={[1, 24, 16]} /><meshStandardMaterial color="#edf0e8" roughness={.48} /></mesh>
+    <mesh position={[0, 0.58, -0.09]} scale={[0.145, 0.19, 0.02]}><sphereGeometry args={[1, 24, 16]} /><meshStandardMaterial color="#edf0e8" roughness={.48} /></mesh>
   </group>;
 }
 
