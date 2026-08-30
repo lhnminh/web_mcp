@@ -9,6 +9,7 @@ import { blankApartmentScene } from '@/lib/domain/demo-scene';
 import { getWindowExposureSummary, northAngleForPlanFacing, planFacingFromNorthAngle, type CardinalDirection } from '@/lib/domain/sunlight';
 import ApartmentScene, { clearSavedApartmentCamera } from './ApartmentScene';
 import { getFurnitureKind } from '@/lib/domain/furniture';
+import { finishTargetsForScene, pruneMaterialOverrides, type FinishTarget } from '@/lib/domain/materials';
 import { useWebMcpTools } from '@/app/hooks/use-webmcp-tools';
 import { buildEditorTools, CURRENT_EDITOR_TOOL_NAMES, type AddFurnitureToolInput, type AddOpeningToolInput, type AddWallToolInput, type UpdateFurnitureToolInput, type UpdateOpeningToolInput, type UpdateWallToolInput } from '@/app/webmcp/editor-tools';
 import { toolFailure, toolFailureFromMessage, toolSuccess } from '@/app/webmcp/result';
@@ -65,21 +66,6 @@ const timeLabel = (hour: number) => {
   const display = whole % 12 || 12;
   return `${display}:${minute.toString().padStart(2, '0')} ${suffix}`;
 };
-
-function pruneOrphanedMaterialOverrides(scene: SceneDocument): SceneDocument {
-  if (!scene.materialOverrides) return scene;
-  const liveIds = {
-    furniture: new Set(scene.layouts.flatMap((layout) => layout.elements.map((element) => element.id))),
-    room: new Set(scene.architecture.flatMap((element) => element.kind === 'room' ? [element.id] : [])),
-    wall: new Set(scene.architecture.flatMap((element) => element.kind === 'wall' ? [element.id] : [])),
-    opening: new Set(scene.architecture.flatMap((element) => element.kind === 'opening' ? [element.id] : [])),
-  };
-  const materialOverrides = Object.fromEntries(Object.entries(scene.materialOverrides).filter(([key]) => {
-    const [scope, id] = key.split(':') as [keyof typeof liveIds | undefined, string | undefined];
-    return Boolean(scope && id && liveIds[scope]?.has(id));
-  }));
-  return { ...scene, materialOverrides };
-}
 
 function resizeApartmentScene(scene: SceneDocument, width: number, depth: number, height: number) {
   const resized = resizeSceneFootprint(scene, width, depth);
@@ -184,7 +170,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       const current = projectRef.current;
       const expectedRevision = projectRevisionRef.current;
       if (!current || expectedRevision === null) return 'The project is still loading.';
-      const sceneToSave = pruneOrphanedMaterialOverrides(scene);
+      const sceneToSave = pruneMaterialOverrides(scene);
       setArchitectureMessage('Saving architecture…');
       try {
         const response = await fetch(`/api/projects/${current.id}`, {
@@ -218,6 +204,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     await moveSaveQueue.current;
     const current = projectRef.current;
     if (!current) return 'The project is still loading.';
+    if (!finishTargetsForScene(current.scene).some((target) => target.targetKey === targetKey)) return 'That finish target is no longer available. Refresh the finish target list and try again.';
     const materialOverrides = { ...(current.scene.materialOverrides ?? {}) };
     if (color === null) delete materialOverrides[targetKey];
     else materialOverrides[targetKey] = color;
@@ -721,11 +708,11 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       setSelected(item.id);
       return toolSuccess(`${item.name.slice(0, 80)} was updated.`, { projectId: updated?.id, revision: updated?.revision, data: { furnitureId: item.id } });
     },
-    updateFinish: async (targetKey, color, signal) => {
-      const error = await updateMaterialFinish(targetKey, color, signal);
+    updateFinish: async (target: FinishTarget, color, signal) => {
+      const error = await updateMaterialFinish(target.targetKey, color, signal);
       const current = projectRef.current;
       if (error) return toolFailureFromMessage(error, current?.revision);
-      return toolSuccess('The 3D finish was refined and saved.', { projectId: current?.id, revision: current?.revision, data: { targetKey, color } });
+      return toolSuccess(color === null ? 'The original 3D finish was restored.' : 'The 3D finish was refined and saved.', { projectId: current?.id, revision: current?.revision, data: { target, operation: color === null ? 'reset' : 'apply', effectiveColor: color ?? target.defaultColor, overridden: color !== null } });
     },
     removeFurniture: async (furnitureId, signal) => {
       const current = projectRef.current;

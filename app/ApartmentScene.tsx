@@ -4,7 +4,7 @@ import { ContactShadows, Html, Line, OrbitControls, RoundedBox } from '@react-th
 import { Canvas, type ThreeEvent, useFrame, useThree } from '@react-three/fiber';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ArchitecturalElement, OpeningElement, RoomElement, WallElement } from '@/lib/domain/scene';
-import { harmonizeColor, materialKey, type FinishMood, type MaterialRole } from '@/lib/domain/materials';
+import { buildFinishTargets, finishTargetsForFurniture, harmonizeColor, MATERIAL_PALETTE, materialKey, type FinishMood, type FinishTarget, type MaterialRole } from '@/lib/domain/materials';
 import { getArchitectureBounds, wallLength } from '@/lib/domain/architecture';
 import { getSunDirection } from '@/lib/domain/sunlight';
 import { getFurnitureKind } from '@/lib/domain/furniture';
@@ -59,18 +59,7 @@ type CameraViewState = {
 
 type CameraPose = Pick<CameraViewState, 'position' | 'target'>;
 
-const palette = {
-  wall: '#eee9dd',
-  trim: '#f8f5eb',
-  wood: '#b98f68',
-  darkWood: '#765b45',
-  sage: '#73877e',
-  sageLight: '#94a59c',
-  rust: '#c47e58',
-  linen: '#d8cdbb',
-  charcoal: '#35413e',
-  brass: '#b88a4f',
-};
+const palette = MATERIAL_PALETTE;
 
 // These are the exact unscaled outer envelopes of the detailed models below.
 // Every model is scaled from this envelope to the saved meter dimensions, so
@@ -808,21 +797,10 @@ function Scene({ hour, northAngle, measurements, objects, architecture }: Pick<A
 const finishPresets = ['#73877e', '#b98f68', '#c47e58', '#596f78', '#d8cdbb', '#765b45', '#9b6a88', '#4f7c78'];
 
 function finishOptionsForFurniture(item: SceneObject): FinishSelection[] {
-  const kind = getFurnitureKind(item.category, item.name);
-  const add = (part: string, label: string, role: MaterialRole, defaultColor: string): FinishSelection => ({ targetKey: materialKey('furniture', item.id, part), owner: item.name, part: label, role, defaultColor });
-  const options: Record<string, FinishSelection[]> = {
-    sofa: [add('base', 'Sofa base', 'textile', palette.sage), add('seat', 'Seat cushions', 'textile', '#879b91'), add('back', 'Back cushions', 'textile', '#687b73'), add('pillows', 'Pillows', 'textile', palette.sageLight), add('arms', 'Arms', 'textile', '#6b8177'), add('legs', 'Legs', 'wood', palette.darkWood)],
-    desk: [add('desktop', 'Desktop', 'wood', palette.wood), add('legs', 'Legs', 'metal', palette.charcoal), add('monitor', 'Monitor', 'metal', '#273230'), add('keyboard', 'Keyboard', 'surface', '#d7d1c3')],
-    coffee: [add('tabletop', 'Tabletop', 'wood', palette.darkWood), add('base', 'Base', 'metal', palette.brass)],
-    dining: [add('tabletop', 'Tabletop', 'wood', palette.wood), add('table-legs', 'Table legs', 'wood', palette.darkWood), add('chairs', 'Chairs', 'textile', palette.sage)],
-    bed: [add('base', 'Bed base', 'wood', palette.darkWood), add('mattress', 'Mattress', 'textile', palette.linen), add('headboard', 'Headboard', 'textile', palette.sage), add('pillows', 'Pillows', 'textile', palette.trim), add('blanket', 'Blanket', 'accent', '#ad7258')],
-    chair: [add('seat', 'Seat', 'textile', palette.rust), add('back', 'Back', 'textile', '#b56f50'), add('arms', 'Arms', 'textile', '#9f5f47')],
-    nightstand: [add('body', 'Body', 'wood', palette.wood), add('top', 'Top', 'wood', '#cfb998')],
-    bookcase: [add('back', 'Back', 'wood', palette.darkWood), add('frame', 'Frame', 'wood', palette.wood), add('shelves', 'Shelves', 'wood', '#b58b65')],
-    storage: [add('body', 'Dresser body', 'wood', palette.wood), add('top', 'Dresser top', 'wood', '#c8b08f'), add('drawers', 'Drawer fronts', 'wood', palette.wood)],
-  };
-  return options[kind] ?? [add('body', 'Body', 'surface', palette.sage)];
+  return finishTargetsForFurniture(item).map(finishSelectionForTarget);
 }
+
+const finishSelectionForTarget = (target: FinishTarget): FinishSelection => ({ targetKey: target.targetKey, owner: target.ownerLabel, part: target.partLabel, role: target.role, defaultColor: target.defaultColor });
 
 function FinishPartPicker({ owner, options, onSelect, onClose }: { owner: string; options: FinishSelection[]; onSelect: (option: FinishSelection) => void; onClose: () => void }) {
   return <aside className="finish-part-picker" aria-label={`Choose a part of ${owner} to recolor`}>
@@ -878,16 +856,20 @@ export default function ApartmentScene(props: ApartmentSceneProps) {
   const [finishMessage, setFinishMessage] = useState('');
   const [hoveredTargetKey, setHoveredTargetKey] = useState<string | null>(null);
   const [partPicker, setPartPicker] = useState<{ owner: string; options: FinishSelection[] } | null>(null);
+  const finishTargetsByKey = useMemo(() => new Map(buildFinishTargets(props.architecture, props.objects).map((target) => [target.targetKey, target])), [props.architecture, props.objects]);
   const previewColor = selection && finishDirty ? harmonizeColor(rawColor, selection.role, mood) : rawColor;
   const displayedColors = useMemo(() => selection ? { ...props.materialOverrides, [selection.targetKey]: previewColor } : props.materialOverrides, [previewColor, props.materialOverrides, selection]);
-  const selectFinish = useCallback((next: FinishSelection) => {
+  const selectFinish = useCallback((candidate: FinishSelection) => {
+    const target = finishTargetsByKey.get(candidate.targetKey);
+    if (!target) return;
+    const next = finishSelectionForTarget(target);
     setPartPicker(null);
     setSelection(next);
     setRawColor(props.materialOverrides[next.targetKey] ?? next.defaultColor);
     setMood('balanced');
     setFinishDirty(false);
     setFinishMessage('Choose a color or finish character to preview');
-  }, [props.materialOverrides]);
+  }, [finishTargetsByKey, props.materialOverrides]);
   const openFurniturePartPicker = useCallback((targetId: string) => {
     const item = props.objects.find((candidate) => candidate.id === targetId);
     if (item) setPartPicker({ owner: item.name, options: finishOptionsForFurniture(item) });
