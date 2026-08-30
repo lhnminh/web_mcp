@@ -258,9 +258,9 @@ test('3D furniture geometry respects the collision footprints used by the 2D pla
   assert.equal(scene.includes('cylinderGeometry args={[0.62, 0.62, 0.09, 32]}'), false, 'coffee table must not exceed its saved footprint');
   assert.match(scene, /scale=\{\[0\.535, 0\.045, 0\.305\]\}/);
   assert.equal(scene.includes('[[-0.8, 0], [0.8, 0], [0, -0.68], [0, 0.68]]'), false, 'dining chairs must stay inside the dining footprint');
-  assert.match(scene, /position: \[-0\.485, 0, 0\][\s\S]*rotation: Math\.PI \/ 2/);
-  assert.match(scene, /position: \[0\.485, 0, 0\][\s\S]*rotation: -Math\.PI \/ 2/);
-  assert.match(scene, /position: \[0, 0, 0\.33\][\s\S]*rotation: Math\.PI/);
+  assert.match(scene, /position: \[-0\.72, 0, 0\][\s\S]*rotation: Math\.PI \/ 2/);
+  assert.match(scene, /position: \[0\.72, 0, 0\][\s\S]*rotation: -Math\.PI \/ 2/);
+  assert.match(scene, /position: \[0, 0, 0\.43\][\s\S]*rotation: Math\.PI/);
   assert.match(scene, /size=\{\[1\.52, 0\.07, 0\.51\]\}/);
   assert.match(scene, /size=\{\[0\.56, 0\.07, 0\.46\]\}/);
   assert.match(scene, /position=\{\[0, 0\.915, -0\.13\]\} size=\{\[0\.91, 1\.83, 0\.08\]\}/);
@@ -276,7 +276,7 @@ test('the 3D generic object is green and the sofa has no orange accent cushion',
 test('3D model scaling calibrates against each complete modeled height', () => {
   const envelopes = [
     ['sofa', '2.18', '0.91', '1'], ['desk', '1.22', '0.61', '1.25'], ['coffee', '1.07', '0.61', '0.425'],
-    ['dining', '1.22', '0.91', '0.8'], ['bed', '1.52', '2.03', '1.295'], ['chair', '0.76', '0.81', '0.98'],
+    ['dining', '1.8', '1.1', '0.8'], ['bed', '1.52', '2.03', '1.295'], ['chair', '0.76', '0.81', '0.98'],
     ['nightstand', '0.56', '0.46', '0.665'], ['bookcase', '0.91', '0.35', '1.83'], ['storage', '1.52', '0.51', '0.945'],
     ['stove', '0.76', '0.61', '0.91'], ['sink', '0.76', '0.61', '1.05'], ['fridge', '0.91', '0.76', '1.78'], ['toilet', '0.4', '0.7', '0.78'], ['shower', '0.91', '0.91', '2'], ['bathtub', '1.7', '0.75', '0.58'], ['washer-dryer', '0.6', '0.65', '0.85'],
     ['other', '0.8', '0.8', '0.8'],

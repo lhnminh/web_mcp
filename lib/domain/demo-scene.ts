@@ -26,7 +26,7 @@ export const demoScene: SceneDocument = {
     { id: 'queen-bed', name: 'Queen bed', category: 'bed', dimensions: { width: 1.52, depth: 2.03, height: 0.61 } },
     { id: 'sofa', name: 'Sofa', category: 'sofa', dimensions: { width: 2.18, depth: 0.91, height: 0.84 } },
     { id: 'desk', name: 'Desk', category: 'desk', dimensions: { width: 1.22, depth: 0.61, height: 0.76 } },
-    { id: 'table', name: 'Dining table', category: 'table', dimensions: { width: 1.22, depth: 0.91, height: 0.76 } },
+    { id: 'table', name: 'Dining table', category: 'table', dimensions: { width: 1.8, depth: 1.1, height: 0.76 } },
     { id: 'dresser', name: 'Dresser', category: 'storage', dimensions: { width: 1.52, depth: 0.51, height: 0.84 } },
   ],
   architecture: [

@@ -68,7 +68,7 @@ const furnitureModelEnvelopes = {
   sofa: { width: 2.18, depth: 0.91, height: 1 },
   desk: { width: 1.22, depth: 0.61, height: 1.25 },
   coffee: { width: 1.07, depth: 0.61, height: 0.425 },
-  dining: { width: 1.22, depth: 0.91, height: 0.8 },
+  dining: { width: 1.8, depth: 1.1, height: 0.8 },
   bed: { width: 1.52, depth: 2.03, height: 1.295 },
   chair: { width: 0.76, depth: 0.81, height: 0.98 },
   nightstand: { width: 0.56, depth: 0.46, height: 0.665 },
@@ -532,15 +532,15 @@ function Desk({ item, position, rotation = 0 }: { item: SceneObject; position: [
 
 function DiningSet({ item, position, rotation = 0 }: { item: SceneObject; position: [number, number, number]; rotation?: number }) {
   const chairs = [
-    { position: [-0.485, 0, 0] as [number, number, number], rotation: Math.PI / 2 },
-    { position: [0.485, 0, 0] as [number, number, number], rotation: -Math.PI / 2 },
-    { position: [0, 0, -0.33] as [number, number, number], rotation: 0 },
-    { position: [0, 0, 0.33] as [number, number, number], rotation: Math.PI },
+    { position: [-0.72, 0, 0] as [number, number, number], rotation: Math.PI / 2 },
+    { position: [0.72, 0, 0] as [number, number, number], rotation: -Math.PI / 2 },
+    { position: [0, 0, -0.43] as [number, number, number], rotation: 0 },
+    { position: [0, 0, 0.43] as [number, number, number], rotation: Math.PI },
   ];
   return (
     <group position={position} rotation={[0, rotation, 0]}>
-      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="tabletop" label="Tabletop" role="wood" defaultColor={palette.wood} position={[0, 0.72, 0]} size={[0.72, 0.08, 0.5]} radius={0.07} />
-      {[-0.27, 0.27].flatMap((x) => [-0.16, 0.16].map((z) => <FinishBox key={`${x}-${z}`} scope="furniture" targetId={item.id} owner={item.name} part="table-legs" label="Table legs" role="wood" defaultColor={palette.darkWood} position={[x, 0.35, z]} size={[0.05, 0.7, 0.05]} radius={0.015} />))}
+      <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="tabletop" label="Tabletop" role="wood" defaultColor={palette.wood} position={[0, 0.72, 0]} size={[1.25, 0.08, 0.72]} radius={0.07} />
+      {[-0.52, 0.52].flatMap((x) => [-0.25, 0.25].map((z) => <FinishBox key={`${x}-${z}`} scope="furniture" targetId={item.id} owner={item.name} part="table-legs" label="Table legs" role="wood" defaultColor={palette.darkWood} position={[x, 0.35, z]} size={[0.05, 0.7, 0.05]} radius={0.015} />))}
       {chairs.map((chair, index) => (
         <group key={index} position={chair.position} rotation={[0, chair.rotation, 0]}>
           <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="chairs" label="Chairs" role="surface" defaultColor={palette.sage} position={[0, 0.42, 0]} size={[0.27, 0.075, 0.25]} radius={0.045} />

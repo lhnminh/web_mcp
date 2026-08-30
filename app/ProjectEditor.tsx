@@ -1744,7 +1744,7 @@ const objectPresets: Array<AddObjectInput & { shortLabel: string }> = [
   { shortLabel: 'Coffee table', name: 'Coffee table', category: 'table', roomId: 'living', dimensions: { width: 1.07, depth: 0.61, height: 0.43 } },
   { shortLabel: 'Desk', name: 'Desk', category: 'desk', roomId: 'living', dimensions: { width: 1.22, depth: 0.61, height: 0.76 } },
   { shortLabel: 'Chair', name: 'Accent chair', category: 'other', roomId: 'living', dimensions: { width: 0.76, depth: 0.81, height: 0.86 } },
-  { shortLabel: 'Dining table', name: 'Dining table', category: 'table', roomId: 'living', dimensions: { width: 1.22, depth: 0.91, height: 0.76 } },
+  { shortLabel: 'Dining table', name: 'Dining table', category: 'table', roomId: 'living', dimensions: { width: 1.8, depth: 1.1, height: 0.76 } },
   { shortLabel: 'Stove', name: 'Stove', category: 'fixture', roomId: 'living', dimensions: { width: 0.76, depth: 0.61, height: 0.91 } },
   { shortLabel: 'Sink', name: 'Sink', category: 'fixture', roomId: 'living', dimensions: { width: 0.76, depth: 0.61, height: 1.05 } },
   { shortLabel: 'Fridge', name: 'Fridge', category: 'fixture', roomId: 'living', dimensions: { width: 0.91, depth: 0.76, height: 1.78 } },
