@@ -117,7 +117,7 @@ export function addWallCommand(scene: SceneDocument, start: Point2, end: Point2,
   if (![start.x, start.y, end.x, end.y].every(Number.isFinite) || !inside(start) || !inside(end) || Math.hypot(end.x - start.x, end.y - start.y) < 0.1) return failure('GEOMETRY_CONFLICT', 'Walls must be at least 0.10 m long and remain inside the apartment.');
   const thickness = options.thickness ?? 0.12;
   const height = options.height ?? scene.architecture.find((element): element is WallElement => element.kind === 'wall')?.height ?? 2.74;
-  if (!Number.isFinite(thickness) || thickness < 0.05 || thickness > 0.75 || !Number.isFinite(height) || height < 1.8 || height > 6) return failure('INVALID_INPUT', 'Wall thickness must be 0.05–0.75 m and height must be 1.80–6.00 m.');
+  if (!Number.isFinite(thickness) || thickness < 0.05 || thickness > 1 || !Number.isFinite(height) || height < 1.8 || height > 6) return failure('INVALID_INPUT', 'Wall thickness must be 0.05–1.00 m and height must be 1.80–6.00 m.');
   const duplicate = scene.architecture.some((element) => element.kind === 'wall' && ((samePoint(element.start, start) && samePoint(element.end, end)) || (samePoint(element.start, end) && samePoint(element.end, start))));
   if (duplicate) return failure('GEOMETRY_CONFLICT', 'A wall already exists at that location.');
   const wall: WallElement = { id: (options.createId ?? createEntityId)('wall'), kind: 'wall', start, end, thickness, height };
@@ -137,7 +137,7 @@ export function updateWallCommand(scene: SceneDocument, wallId: string, patch: W
     nextWall = { ...nextWall, end: { x: nextWall.start.x + (nextWall.end.x - nextWall.start.x) * normalizedPatch.length / currentLength, y: nextWall.start.y + (nextWall.end.y - nextWall.start.y) * normalizedPatch.length / currentLength } };
   }
   if (![nextWall.start.x, nextWall.start.y, nextWall.end.x, nextWall.end.y, nextWall.thickness, nextWall.height].every(Number.isFinite)) return failure('INVALID_INPUT', 'Wall values must be finite numbers.');
-  if (nextWall.thickness < 0.05 || nextWall.thickness > 0.75 || nextWall.height < 1.8 || nextWall.height > 6) return failure('INVALID_INPUT', 'Wall thickness must be 0.05–0.75 m and height must be 1.80–6.00 m.');
+  if (nextWall.thickness < 0.05 || nextWall.thickness > 1 || nextWall.height < 1.8 || nextWall.height > 6) return failure('INVALID_INPUT', 'Wall thickness must be 0.05–1.00 m and height must be 1.80–6.00 m.');
   const bounds = getArchitectureBounds(scene.architecture);
   const currentWalls = scene.architecture.filter((element): element is WallElement => element.kind === 'wall');
   const exteriorIds = new Set(currentWalls.filter((candidate) => isExteriorWall(candidate, bounds, scene.architecture)).map((candidate) => candidate.id));
@@ -234,7 +234,7 @@ export function addOpeningCommand(scene: SceneDocument, input: { openingType: 'd
 const validateOpening = (scene: SceneDocument, opening: OpeningElement, excludingId?: string): Extract<ArchitectureCommandResult, { ok: false }> | null => {
   const wall = scene.architecture.find((element): element is WallElement => element.kind === 'wall' && element.id === opening.wallId);
   if (!wall) return { ok: false, code: 'NOT_FOUND', message: 'The opening’s parent wall was not found.' };
-  const maximumWidth = opening.openingType === 'window' ? 5 : 3;
+  const maximumWidth = opening.openingType === 'window' ? 30 : 3;
   if (opening.width < 0.5 || opening.width > maximumWidth || opening.offset < 0.1 || opening.offset + opening.width > wallLength(wall) - 0.1) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: `${opening.openingType === 'window' ? 'Windows' : 'Doors'} must be 0.50–${maximumWidth.toFixed(2)} m wide and remain at least 0.10 m from wall corners.` };
   const minimumHeight = opening.openingType === 'window' ? 0.3 : 1.8;
   if (opening.height < minimumHeight || opening.sillHeight < 0 || opening.sillHeight + opening.height > wall.height) return { ok: false, code: 'OPENING_DOES_NOT_FIT', message: 'Opening height and sill height must fit within the selected wall.' };

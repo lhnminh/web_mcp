@@ -140,13 +140,13 @@ const wallProperties = {
   start: pointSchema,
   end: pointSchema,
   length: { type: 'number', minimum: 0.1, maximum: 100 },
-  thickness: { type: 'number', minimum: 0.05, maximum: 0.75 },
+  thickness: { type: 'number', minimum: 0.05, maximum: 1 },
   height: { type: 'number', minimum: 1.8, maximum: 6 },
 } as const;
 const openingProperties = {
   openingId: { type: 'string', minLength: 1, maxLength: 128 },
   offset: { type: 'number', minimum: 0, maximum: 100 },
-  width: { type: 'number', minimum: 0.5, maximum: 5 },
+  width: { type: 'number', minimum: 0.5, maximum: 30 },
   height: { type: 'number', minimum: 0.3, maximum: 6 },
   sillHeight: { type: 'number', minimum: 0, maximum: 6 },
   swing: { type: 'string', enum: ['left', 'right'] },
@@ -396,7 +396,7 @@ export function buildEditorTools(dependencies: EditorToolDependencies): WebMcpTo
       execute: (input, { signal }) => {
         const start = isRecord(input) ? parsePoint(input.start) : null;
         const end = isRecord(input) ? parsePoint(input.end) : null;
-        const thickness = isRecord(input) && input.thickness !== undefined ? finiteNumber(input.thickness) && input.thickness >= 0.05 && input.thickness <= 0.75 ? input.thickness : null : undefined;
+        const thickness = isRecord(input) && input.thickness !== undefined ? finiteNumber(input.thickness) && input.thickness >= 0.05 && input.thickness <= 1 ? input.thickness : null : undefined;
         const height = isRecord(input) && input.height !== undefined ? finiteNumber(input.height) && input.height >= 1.8 && input.height <= 6 ? input.height : null : undefined;
         if (!start || !end || thickness === null || height === null) return toolFailure('INVALID_INPUT', 'Provide bounded start and end points, thickness, and height in meters.');
         return dependencies.addWall({ start, end, thickness, height }, signal);
@@ -412,7 +412,7 @@ export function buildEditorTools(dependencies: EditorToolDependencies): WebMcpTo
         const start = input.start === undefined ? undefined : parsePoint(input.start);
         const end = input.end === undefined ? undefined : parsePoint(input.end);
         const length = input.length === undefined ? undefined : finiteNumber(input.length) && input.length >= 0.1 && input.length <= 100 ? input.length : null;
-        const thickness = input.thickness === undefined ? undefined : finiteNumber(input.thickness) && input.thickness >= 0.05 && input.thickness <= 0.75 ? input.thickness : null;
+        const thickness = input.thickness === undefined ? undefined : finiteNumber(input.thickness) && input.thickness >= 0.05 && input.thickness <= 1 ? input.thickness : null;
         const height = input.height === undefined ? undefined : finiteNumber(input.height) && input.height >= 1.8 && input.height <= 6 ? input.height : null;
         if (start === null || end === null || length === null || thickness === null || height === null || [start, end, length, thickness, height].every((value) => value === undefined)) return toolFailure('INVALID_INPUT', 'Provide at least one valid wall endpoint, length, thickness, or height update.');
         return dependencies.updateWall({ wallId: input.wallId, start, end, length, thickness, height }, signal);

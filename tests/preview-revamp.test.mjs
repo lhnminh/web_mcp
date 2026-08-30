@@ -122,6 +122,14 @@ test('saving one furniture size cannot reset another furniture item with a pendi
   assert.match(editor, /if \(transform\.dimensions && JSON\.stringify\(pendingObjectDimensions\.current\.get\(objectId\)\) === JSON\.stringify\(transform\.dimensions\)\) pendingObjectDimensions\.current\.delete\(objectId\);[\s\S]*?syncProject\(result\)/);
 });
 
+test('architecture saves wait for earlier edits before calculating the next wall or opening command', () => {
+  for (const command of ['addWall', 'updateWall', 'addOpening', 'updateOpening']) {
+    assert.match(editor, new RegExp(`const ${command} = async [^;]+await moveSaveQueue\\.current`));
+  }
+  assert.match(editor, /const openingWidthMaximum = selectedWindow \? 30 : 3/);
+  assert.match(editor, /aria-label="Wall thickness slider" type="range" min="0\.05" max="1"/);
+});
+
 test('the static north arrow is replaced by a saved cardinal compass', () => {
   assert.equal(editor.includes('<div className="north-marker">'), false);
   assert.match(editor, /function PlanCompass/);

@@ -109,7 +109,7 @@ export function parseScene(value: unknown): SceneDocument {
       if (length < 0.1) throw new SceneValidationError(`wall ${id} must be at least 0.1 meters long`);
       wallLengths.set(id, length);
       const thickness = positive(element.thickness, `wall ${id} thickness`);
-      if (thickness < 0.05 || thickness > 0.5) throw new SceneValidationError(`wall ${id} thickness must be between 0.05 and 0.5 meters`);
+      if (thickness < 0.05 || thickness > 1) throw new SceneValidationError(`wall ${id} thickness must be between 0.05 and 1 meter`);
       const height = positive(element.height, `wall ${id} height`);
       if (height < 1.8 || height > 6) throw new SceneValidationError(`wall ${id} height must be between 1.8 and 6 meters`);
       wallHeights.set(id, height);
@@ -127,6 +127,8 @@ export function parseScene(value: unknown): SceneDocument {
       const offset = finite(element.offset, `opening ${id} offset`);
       if (offset < 0) throw new SceneValidationError(`opening ${id} offset cannot be negative`);
       const width = positive(element.width, `opening ${id} width`);
+      const maximumWidth = element.openingType === 'window' ? 30 : 3;
+      if (width > maximumWidth) throw new SceneValidationError(`${element.openingType} ${id} width must be at most ${maximumWidth} meters`);
       if (offset + width > (wallLengths.get(wallId) ?? 0) + 0.001) throw new SceneValidationError(`opening ${id} does not fit on wall ${wallId}`);
       const height = positive(element.height, `opening ${id} height`);
       const sillHeight = finite(element.sillHeight, `opening ${id} sillHeight`);
