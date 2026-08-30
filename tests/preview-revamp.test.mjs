@@ -5,6 +5,8 @@ import { test } from 'node:test';
 const editor = readFileSync(new URL('../app/ProjectEditor.tsx', import.meta.url), 'utf8');
 const scene = readFileSync(new URL('../app/ApartmentScene.tsx', import.meta.url), 'utf8');
 const furniture = readFileSync(new URL('../lib/domain/furniture.ts', import.meta.url), 'utf8');
+const materials = readFileSync(new URL('../lib/domain/materials.ts', import.meta.url), 'utf8');
+const editorTools = readFileSync(new URL('../app/webmcp/editor-tools.ts', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
 const nextConfig = readFileSync(new URL('../next.config.ts', import.meta.url), 'utf8');
 const objectRoute = readFileSync(new URL('../app/api/projects/[id]/objects/[objectId]/route.ts', import.meta.url), 'utf8');
@@ -218,13 +220,24 @@ test('3D windows include responsive mullions, sill, and glass without the yellow
 });
 
 test('every furniture preset has a distinct detailed 3D model', () => {
-  for (const component of ['Sofa', 'Desk', 'DiningSet', 'Bed', 'Dresser', 'CoffeeTable', 'AccentChair', 'Nightstand', 'Bookcase', 'GenericObject']) {
+  for (const component of ['Sofa', 'Desk', 'DiningSet', 'Bed', 'Dresser', 'CoffeeTable', 'AccentChair', 'Nightstand', 'Bookcase', 'Stove', 'Sink', 'Fridge', 'Toilet', 'Shower', 'Bathtub', 'WasherDryer', 'GenericObject']) {
     assert.match(scene, new RegExp(`function ${component}`));
   }
   assert.match(scene, /kind === 'chair'[\s\S]*<AccentChair/);
   assert.match(scene, /kind === 'nightstand'[\s\S]*<Nightstand/);
   assert.match(scene, /kind === 'bookcase'[\s\S]*<Bookcase/);
   assert.match(scene, /kind === 'other'[\s\S]*<GenericObject/);
+});
+
+test('essential kitchen, bathroom, and laundry fixtures are available with calibrated 2D and 3D identities', () => {
+  for (const label of ['Stove', 'Sink', 'Fridge', 'Toilet', 'Shower', 'Bathtub', 'Washer / dryer']) assert.match(editor, new RegExp(`shortLabel: '${label}'`));
+  for (const kind of ['stove', 'sink', 'fridge', 'toilet', 'shower', 'bathtub', 'washer-dryer']) {
+    assert.match(furniture, new RegExp(`'${kind}'`));
+    assert.match(scene, new RegExp(`furnitureModelEnvelopes${kind === 'washer-dryer' ? "\\['washer-dryer'\\]" : `\\.${kind}`}`));
+    assert.match(materials, new RegExp(`${kind === 'washer-dryer' ? "'washer-dryer'" : kind}: \\[`));
+  }
+  assert.match(editor, /category: 'fixture'/);
+  assert.match(editorTools, /'fixture'/);
 });
 
 test('3D furniture geometry respects the collision footprints used by the 2D plan', () => {
@@ -251,11 +264,14 @@ test('3D model scaling calibrates against each complete modeled height', () => {
     ['sofa', '2.18', '0.91', '1'], ['desk', '1.22', '0.61', '1.25'], ['coffee', '1.07', '0.61', '0.425'],
     ['dining', '1.22', '0.91', '0.8'], ['bed', '1.52', '2.03', '1.295'], ['chair', '0.76', '0.81', '0.98'],
     ['nightstand', '0.56', '0.46', '0.665'], ['bookcase', '0.91', '0.35', '1.83'], ['storage', '1.52', '0.51', '0.945'],
+    ['stove', '0.76', '0.61', '0.91'], ['sink', '0.76', '0.61', '1.05'], ['fridge', '0.91', '0.76', '1.78'], ['toilet', '0.4', '0.7', '0.78'], ['shower', '0.91', '0.91', '2'], ['bathtub', '1.7', '0.75', '0.58'], ['washer-dryer', '0.6', '0.65', '0.85'],
     ['other', '0.8', '0.8', '0.8'],
   ];
   for (const [kind, width, depth, height] of envelopes) {
-    assert.match(scene, new RegExp(`${kind}: \\{ width: ${width.replace('.', '\\.')}, depth: ${depth.replace('.', '\\.')}, height: ${height.replace('.', '\\.')} \\}`));
-    assert.match(scene, new RegExp(`base=\\{furnitureModelEnvelopes\\.${kind}\\}`));
+    const property = kind === 'washer-dryer' ? `'washer-dryer'` : kind;
+    const reference = kind === 'washer-dryer' ? "\\['washer-dryer'\\]" : `\\.${kind}`;
+    assert.match(scene, new RegExp(`${property}: \\{ width: ${width.replace('.', '\\.')}, depth: ${depth.replace('.', '\\.')}, height: ${height.replace('.', '\\.')} \\}`));
+    assert.match(scene, new RegExp(`base=\\{furnitureModelEnvelopes${reference}\\}`));
   }
   assert.match(scene, /scale=\{\[item\.dimensions\.width \/ base\.width, item\.dimensions\.height \/ base\.height, item\.dimensions\.depth \/ base\.depth\]\}/);
 });

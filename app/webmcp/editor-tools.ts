@@ -65,7 +65,7 @@ export type EditorToolSnapshot = {
 
 export type AddFurnitureToolInput = {
   name: string;
-  category: 'bed' | 'sofa' | 'desk' | 'table' | 'storage' | 'other';
+  category: 'bed' | 'sofa' | 'desk' | 'table' | 'storage' | 'fixture' | 'other';
   roomId: string;
   dimensions: { width: number; depth: number; height: number };
 };
@@ -114,7 +114,7 @@ export type EditorToolDependencies = {
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const finiteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const validId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 128;
-const categories = new Set(['bed', 'sofa', 'desk', 'table', 'storage', 'other']);
+const categories = new Set(['bed', 'sofa', 'desk', 'table', 'storage', 'fixture', 'other']);
 const dimensionsSchema = {
   type: 'object',
   additionalProperties: false,

@@ -34,7 +34,7 @@ type SceneObject = {
 
 type AddObjectInput = {
   name: string;
-  category: 'bed' | 'sofa' | 'desk' | 'table' | 'storage' | 'other';
+  category: 'bed' | 'sofa' | 'desk' | 'table' | 'storage' | 'fixture' | 'other';
   roomId: RoomId;
   dimensions: SceneObject['dimensions'];
 };
@@ -1165,7 +1165,14 @@ function FurnitureGlyph({ category, name, compact = false }: { category: string;
       {kind === 'bookcase' && <><rect style={mainStyle} x="10" y="2" width="28" height="32" rx="1" /><path style={mainStyle} d="M10 12.5h28M10 23h28" /><path style={detailStyle} d="M14 5v6M19 4v7M25 14v7M31 14v7M14 25v6M21 26v5M29 25v6M34 26v5" /><path style={softStyle} d="M12 32h24" /></>}
       {kind === 'nightstand' && <><rect style={mainStyle} x="14" y="6" width="20" height="25" rx="1" /><path style={mainStyle} d="M14 14h20M14 22h20" /><circle style={accentStyle} cx="24" cy="10" r="1" /><circle style={accentStyle} cx="24" cy="18" r="1" /><circle style={accentStyle} cx="24" cy="26" r="1" /></>}
       {kind === 'storage' && <><rect style={mainStyle} x="10" y="7" width="28" height="23" rx="1" /><path style={mainStyle} d="M10 14.5h28M10 22h28M24 7v23" /><circle style={accentStyle} cx="21" cy="11" r="1" /><circle style={accentStyle} cx="27" cy="11" r="1" /><circle style={accentStyle} cx="21" cy="18" r="1" /><circle style={accentStyle} cx="27" cy="18" r="1" /></>}
-      {!['bed', 'sofa', 'desk', 'dining', 'coffee', 'chair', 'bookcase', 'nightstand', 'storage'].includes(kind) && <><path style={mainStyle} d="M12 8h24l5 10-5 10H12L7 18z" /><circle style={accentStyle} cx="24" cy="18" r="4" /><path style={detailStyle} d="M24 9v5M24 22v5M15 18h5M28 18h5" /></>}
+      {kind === 'stove' && <><rect style={mainStyle} x="11" y="4" width="26" height="28" rx="2" /><rect style={detailStyle} x="14" y="7" width="20" height="9" rx="1" /><circle style={detailStyle} cx="18" cy="23" r="3" /><circle style={detailStyle} cx="30" cy="23" r="3" /><path style={softStyle} d="M15 27h18" /></>}
+      {kind === 'sink' && <><rect style={mainStyle} x="7" y="8" width="34" height="21" rx="2" /><rect style={detailStyle} x="13" y="12" width="22" height="13" rx="5" /><path style={detailStyle} d="M24 12V5M24 5c0-3 6-3 6 0v3" /><circle style={accentStyle} cx="24" cy="18" r="1.5" /></>}
+      {kind === 'fridge' && <><rect style={mainStyle} x="14" y="2" width="20" height="32" rx="2" /><path style={mainStyle} d="M14 13h20" /><path style={detailStyle} d="M30 5v5M30 16v13" /><circle style={accentStyle} cx="24" cy="9" r="1" /></>}
+      {kind === 'toilet' && <><rect style={mainStyle} x="15" y="3" width="18" height="12" rx="2" /><ellipse style={mainStyle} cx="24" cy="24" rx="13" ry="9" /><ellipse style={detailStyle} cx="24" cy="24" rx="7" ry="4" /><path style={detailStyle} d="M14 16h20" /></>}
+      {kind === 'shower' && <><rect style={mainStyle} x="7" y="3" width="34" height="30" rx="3" /><path style={detailStyle} d="M10 29L38 7M10 7h28" /><circle style={accentStyle} cx="32" cy="12" r="2" /><path style={softStyle} d="M30 16l-3 5m6-3l-3 5m6-3l-3 5" /></>}
+      {kind === 'bathtub' && <><rect style={mainStyle} x="5" y="11" width="38" height="17" rx="8" /><rect style={detailStyle} x="10" y="14" width="28" height="10" rx="5" /><path style={detailStyle} d="M12 10V5c0-3 7-3 7 0v3" /><path style={softStyle} d="M9 29v3m30-3v3" /></>}
+      {kind === 'washer-dryer' && <><rect style={mainStyle} x="12" y="3" width="24" height="31" rx="2" /><rect style={detailStyle} x="15" y="7" width="18" height="6" rx="1" /><circle style={detailStyle} cx="24" cy="24" r="7" /><circle style={accentStyle} cx="19" cy="10" r="1" /><circle style={accentStyle} cx="23" cy="10" r="1" /></>}
+      {!['bed', 'sofa', 'desk', 'dining', 'coffee', 'chair', 'bookcase', 'nightstand', 'storage', 'stove', 'sink', 'fridge', 'toilet', 'shower', 'bathtub', 'washer-dryer'].includes(kind) && <><path style={mainStyle} d="M12 8h24l5 10-5 10H12L7 18z" /><circle style={accentStyle} cx="24" cy="18" r="4" /><path style={detailStyle} d="M24 9v5M24 22v5M15 18h5M28 18h5" /></>}
     </svg>
   );
 }
@@ -1577,7 +1584,14 @@ function PlanFurnitureDrawing({ kind }: { kind: string }) {
         <circle cx="18" cy="50" r="3" fill="#527488" /><circle cx="50" cy="50" r="3" fill="#527488" /><circle cx="82" cy="50" r="3" fill="#527488" />
         <circle cx="18" cy="80" r="3" fill="#527488" /><circle cx="50" cy="80" r="3" fill="#527488" /><circle cx="82" cy="80" r="3" fill="#527488" />
       </>}
-      {!['bed', 'sofa', 'desk', 'dining', 'coffee', 'chair', 'nightstand', 'bookcase', 'storage'].includes(kind) && <>
+      {kind === 'stove' && <><rect {...body} x="5" y="4" width="90" height="92" rx="3" /><rect {...light} x="12" y="11" width="76" height="25" rx="2" /><circle {...detail} cx="28" cy="58" r="13" /><circle {...detail} cx="72" cy="58" r="13" /><path {...detail} d="M12 83H88" /></>}
+      {kind === 'sink' && <><rect {...body} x="3" y="9" width="94" height="82" rx="3" /><rect {...light} x="16" y="26" width="68" height="45" rx="18" /><path {...line} d="M50 26V11C50 2 72 2 72 11v11" /><circle cx="50" cy="49" r="4" fill="#527488" /></>}
+      {kind === 'fridge' && <><rect {...body} x="13" y="2" width="74" height="96" rx="3" /><path {...line} d="M13 36H87" /><path {...detail} d="M76 9v19M76 44v45" /><circle cx="50" cy="19" r="4" fill="#527488" /></>}
+      {kind === 'toilet' && <><rect {...body} x="27" y="3" width="46" height="31" rx="4" /><path {...body} d="M18 42Q18 31 50 31Q82 31 82 42V69Q82 94 50 94Q18 94 18 69Z" /><ellipse {...light} cx="50" cy="58" rx="19" ry="13" /><ellipse {...detail} cx="50" cy="58" rx="11" ry="7" /></>}
+      {kind === 'shower' && <><rect {...body} x="4" y="4" width="92" height="92" rx="4" /><path {...detail} d="M12 88L88 12M12 12h76" /><circle cx="74" cy="25" r="5" fill="#527488" /><path {...detail} d="M72 33l-8 14m15-7l-8 14m15-7l-8 14" /></>}
+      {kind === 'bathtub' && <><rect {...body} x="4" y="20" width="92" height="60" rx="27" /><rect {...light} x="13" y="29" width="74" height="42" rx="20" /><path {...line} d="M18 20V9C18 0 41 0 41 9v8" /><circle cx="50" cy="50" r="4" fill="#527488" /></>}
+      {kind === 'washer-dryer' && <><rect {...body} x="8" y="2" width="84" height="96" rx="4" /><rect {...light} x="16" y="10" width="68" height="18" rx="2" /><circle {...detail} cx="50" cy="63" r="24" /><circle {...light} cx="50" cy="63" r="15" /><circle cx="28" cy="19" r="4" fill="#527488" /><circle cx="43" cy="19" r="4" fill="#527488" /></>}
+      {!['bed', 'sofa', 'desk', 'dining', 'coffee', 'chair', 'nightstand', 'bookcase', 'storage', 'stove', 'sink', 'fridge', 'toilet', 'shower', 'bathtub', 'washer-dryer'].includes(kind) && <>
         <path {...body} d="M8 25Q8 8 25 8H75Q92 8 92 25V75Q92 92 75 92H25Q8 92 8 75Z" />
         <path {...detail} d="M20 50H80M50 20V80" /><circle {...light} cx="50" cy="50" r="17" />
       </>}
@@ -1726,6 +1740,13 @@ const objectPresets: Array<AddObjectInput & { shortLabel: string }> = [
   { shortLabel: 'Nightstand', name: 'Nightstand', category: 'storage', roomId: 'bedroom', dimensions: { width: 0.56, depth: 0.46, height: 0.61 } },
   { shortLabel: 'Bookcase', name: 'Bookcase', category: 'storage', roomId: 'living', dimensions: { width: 0.91, depth: 0.35, height: 1.83 } },
   { shortLabel: 'Coffee table', name: 'Coffee table', category: 'table', roomId: 'living', dimensions: { width: 1.07, depth: 0.61, height: 0.43 } },
+  { shortLabel: 'Stove', name: 'Stove', category: 'fixture', roomId: 'living', dimensions: { width: 0.76, depth: 0.61, height: 0.91 } },
+  { shortLabel: 'Sink', name: 'Sink', category: 'fixture', roomId: 'living', dimensions: { width: 0.76, depth: 0.61, height: 1.05 } },
+  { shortLabel: 'Fridge', name: 'Fridge', category: 'fixture', roomId: 'living', dimensions: { width: 0.91, depth: 0.76, height: 1.78 } },
+  { shortLabel: 'Toilet', name: 'Toilet', category: 'fixture', roomId: 'living', dimensions: { width: 0.4, depth: 0.7, height: 0.78 } },
+  { shortLabel: 'Shower', name: 'Shower', category: 'fixture', roomId: 'living', dimensions: { width: 0.91, depth: 0.91, height: 2 } },
+  { shortLabel: 'Bathtub', name: 'Bathtub', category: 'fixture', roomId: 'living', dimensions: { width: 1.7, depth: 0.75, height: 0.58 } },
+  { shortLabel: 'Washer / dryer', name: 'Washer / dryer', category: 'fixture', roomId: 'living', dimensions: { width: 0.6, depth: 0.65, height: 0.85 } },
   { shortLabel: 'Object', name: 'Custom object', category: 'other', roomId: 'living', dimensions: { width: 0.8, depth: 0.8, height: 0.8 } },
 ];
 

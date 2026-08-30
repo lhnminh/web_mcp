@@ -71,6 +71,13 @@ const furnitureParts: Record<string, readonly FinishPartDefinition[]> = {
   nightstand: [part('body', 'Nightstand body', 'wood', MATERIAL_PALETTE.wood), part('top', 'Nightstand top', 'wood', '#cfb998')],
   bookcase: [part('back', 'Back', 'wood', MATERIAL_PALETTE.darkWood), part('frame', 'Frame', 'wood', MATERIAL_PALETTE.wood), part('shelves', 'Shelves', 'wood', '#b58b65')],
   storage: [part('body', 'Dresser body', 'wood', MATERIAL_PALETTE.wood), part('top', 'Dresser top', 'wood', '#c8b08f'), part('drawers', 'Drawer fronts', 'wood', MATERIAL_PALETTE.wood)],
+  stove: [part('body', 'Stove body', 'metal', '#4e5e61'), part('cooktop', 'Cooktop', 'metal', '#273230'), part('oven', 'Oven door', 'surface', '#dce4df')],
+  sink: [part('cabinet', 'Sink cabinet', 'wood', MATERIAL_PALETTE.wood), part('basin', 'Sink basin', 'surface', '#dce4df')],
+  fridge: [part('body', 'Fridge body', 'metal', '#dce4df'), part('doors', 'Fridge doors', 'surface', '#eef1e9')],
+  toilet: [part('tank', 'Toilet tank', 'surface', '#edf0e8'), part('base', 'Toilet base', 'surface', '#edf0e8')],
+  shower: [part('tray', 'Shower tray', 'surface', '#dce4df'), part('glass', 'Shower glass', 'surface', '#a9d3df')],
+  bathtub: [part('shell', 'Bathtub shell', 'surface', '#dce4df'), part('basin', 'Bathtub basin', 'surface', '#f7f6ec')],
+  'washer-dryer': [part('body', 'Washer dryer body', 'metal', '#dce4df'), part('panel', 'Control panel', 'surface', '#eef1e9')],
 };
 
 export function finishTargetsForFurniture(item: FinishTargetObject): FinishTarget[] {

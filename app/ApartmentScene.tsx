@@ -74,6 +74,13 @@ const furnitureModelEnvelopes = {
   nightstand: { width: 0.56, depth: 0.46, height: 0.665 },
   bookcase: { width: 0.91, depth: 0.35, height: 1.83 },
   storage: { width: 1.52, depth: 0.51, height: 0.945 },
+  stove: { width: 0.76, depth: 0.61, height: 0.91 },
+  sink: { width: 0.76, depth: 0.61, height: 1.05 },
+  fridge: { width: 0.91, depth: 0.76, height: 1.78 },
+  toilet: { width: 0.4, depth: 0.7, height: 0.78 },
+  shower: { width: 0.91, depth: 0.91, height: 2 },
+  bathtub: { width: 1.7, depth: 0.75, height: 0.58 },
+  'washer-dryer': { width: 0.6, depth: 0.65, height: 0.85 },
   other: { width: 0.8, depth: 0.8, height: 0.8 },
 } as const;
 
@@ -628,6 +635,67 @@ function Bookcase({ item, position }: { item: SceneObject; position: [number, nu
   );
 }
 
+function Stove({ item }: { item: SceneObject }) {
+  return <group>
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="body" label="Stove body" role="metal" defaultColor="#4e5e61" position={[0, 0.43, 0]} size={[0.76, 0.86, 0.61]} radius={0.035} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="cooktop" label="Cooktop" role="metal" defaultColor="#273230" position={[0, 0.87, 0]} size={[0.7, 0.035, 0.56]} radius={0.018} />
+    {[-0.18, 0.18].flatMap((x) => [-0.15, 0.15].map((z) => <mesh key={`${x}-${z}`} position={[x, 0.895, z]} rotation={[-Math.PI / 2, 0, 0]}><torusGeometry args={[0.075, 0.012, 10, 22]} /><meshStandardMaterial color={palette.brass} metalness={.72} roughness={.25} /></mesh>))}
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="oven" label="Oven door" role="surface" defaultColor="#dce4df" position={[0, 0.42, 0.293]} size={[0.56, 0.46, 0.022]} radius={0.018} />
+  </group>;
+}
+
+function Sink({ item }: { item: SceneObject }) {
+  return <group>
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="cabinet" label="Sink cabinet" role="wood" defaultColor={palette.wood} position={[0, 0.4, 0]} size={[0.76, 0.8, 0.61]} radius={0.03} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="basin" label="Sink basin" role="surface" defaultColor="#dce4df" position={[0, 0.83, 0]} size={[0.65, 0.06, 0.5]} radius={0.04} />
+    <mesh position={[0, 0.865, 0]} rotation={[-Math.PI / 2, 0, 0]}><torusGeometry args={[0.15, 0.018, 12, 28]} /><meshStandardMaterial color="#5b747c" metalness={.55} roughness={.28} /></mesh>
+    <mesh position={[0, 0.955, -0.17]}><cylinderGeometry args={[0.025, 0.025, 0.19, 14]} /><meshStandardMaterial color={palette.brass} metalness={.72} roughness={.22} /></mesh>
+    <Box position={[0.075, 1.037, -0.17]} size={[0.15, 0.025, 0.025]} color={palette.brass} radius={0.01} />
+  </group>;
+}
+
+function Fridge({ item }: { item: SceneObject }) {
+  return <group>
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="body" label="Fridge body" role="metal" defaultColor="#dce4df" position={[0, 0.89, 0]} size={[0.91, 1.78, 0.76]} radius={0.045} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="doors" label="Fridge doors" role="surface" defaultColor="#eef1e9" position={[0, 0.9, 0.365]} size={[0.82, 1.68, 0.02]} radius={0.025} />
+    <Box position={[0, 1.18, 0.37]} size={[0.82, 0.02, 0.018]} color="#78929a" radius={0.006} />
+    {[-0.27, 0.27].map((x) => <Box key={x} position={[x, x < 0 ? 0.5 : 1.5, 0.37]} size={[0.028, 0.5, 0.018]} color={palette.charcoal} radius={0.01} />)}
+  </group>;
+}
+
+function Toilet({ item }: { item: SceneObject }) {
+  return <group>
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="tank" label="Toilet tank" role="surface" defaultColor="#edf0e8" position={[0, 0.59, -0.22]} size={[0.4, 0.38, 0.22]} radius={0.06} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="base" label="Toilet base" role="surface" defaultColor="#edf0e8" position={[0, 0.3, 0.1]} size={[0.35, 0.56, 0.48]} radius={0.16} />
+    <mesh position={[0, 0.59, 0.11]} rotation={[-Math.PI / 2, 0, 0]}><torusGeometry args={[0.115, 0.035, 14, 28]} /><meshStandardMaterial color="#bcc9c4" roughness={.45} /></mesh>
+  </group>;
+}
+
+function Shower({ item }: { item: SceneObject }) {
+  return <group>
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="tray" label="Shower tray" role="surface" defaultColor="#dce4df" position={[0, 0.045, 0]} size={[0.91, 0.09, 0.91]} radius={0.06} />
+    {[-0.42, 0.42].map((x) => <FinishBox key={x} scope="furniture" targetId={item.id} owner={item.name} part="glass" label="Shower glass" role="surface" defaultColor="#a9d3df" position={[x, 1.03, 0]} size={[0.025, 1.94, 0.91]} radius={0.012} />)}
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="glass" label="Shower glass" role="surface" defaultColor="#a9d3df" position={[0, 1.03, -0.42]} size={[0.91, 1.94, 0.025]} radius={0.012} />
+    <Box position={[0.27, 1.65, -0.36]} size={[0.04, 0.5, 0.04]} color={palette.brass} radius={0.012} /><mesh position={[0.27, 1.84, -0.26]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[0.1, 0.1, 0.035, 18]} /><meshStandardMaterial color={palette.brass} metalness={.65} roughness={.25} /></mesh>
+  </group>;
+}
+
+function Bathtub({ item }: { item: SceneObject }) {
+  return <group>
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="shell" label="Bathtub shell" role="surface" defaultColor="#dce4df" position={[0, 0.29, 0]} size={[1.7, 0.58, 0.75]} radius={0.18} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="basin" label="Bathtub basin" role="surface" defaultColor="#f7f6ec" position={[0, 0.49, 0]} size={[1.4, 0.1, 0.49]} radius={0.16} />
+    <Box position={[-0.62, 0.45, -0.2]} size={[0.035, 0.2, 0.035]} color={palette.brass} radius={0.01} /><Box position={[-0.52, 0.56, -0.2]} size={[0.18, 0.025, 0.035]} color={palette.brass} radius={0.01} />
+  </group>;
+}
+
+function WasherDryer({ item }: { item: SceneObject }) {
+  return <group>
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="body" label="Washer dryer body" role="metal" defaultColor="#dce4df" position={[0, 0.425, 0]} size={[0.6, 0.85, 0.65]} radius={0.04} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="panel" label="Control panel" role="surface" defaultColor="#eef1e9" position={[0, 0.72, 0.307]} size={[0.49, 0.16, 0.02]} radius={0.015} />
+    <mesh position={[0, 0.38, 0.302]} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.17, 0.02, 12, 28]} /><meshStandardMaterial color="#5f7c86" metalness={.35} roughness={.35} /></mesh>
+  </group>;
+}
+
 function GenericObject({ item, position }: { item: SceneObject; position: [number, number, number] }) {
   return (
     <group position={position}>
@@ -672,6 +740,13 @@ function Furniture({ objects }: { objects: SceneObject[] }) {
         if (kind === 'nightstand') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.nightstand}><Nightstand item={item} position={[0, 0, 0]} /></ScaledFurniture>;
         if (kind === 'bookcase') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.bookcase}><Bookcase item={item} position={[0, 0, 0]} /></ScaledFurniture>;
         if (kind === 'storage') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.storage}><Dresser item={item} position={[0, 0, 0]} /></ScaledFurniture>;
+        if (kind === 'stove') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.stove}><Stove item={item} /></ScaledFurniture>;
+        if (kind === 'sink') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.sink}><Sink item={item} /></ScaledFurniture>;
+        if (kind === 'fridge') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.fridge}><Fridge item={item} /></ScaledFurniture>;
+        if (kind === 'toilet') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.toilet}><Toilet item={item} /></ScaledFurniture>;
+        if (kind === 'shower') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.shower}><Shower item={item} /></ScaledFurniture>;
+        if (kind === 'bathtub') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.bathtub}><Bathtub item={item} /></ScaledFurniture>;
+        if (kind === 'washer-dryer') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes['washer-dryer']}><WasherDryer item={item} /></ScaledFurniture>;
         if (kind === 'other') return <ScaledFurniture key={item.id} item={item} base={furnitureModelEnvelopes.other}><GenericObject item={item} position={[0, 0, 0]} /></ScaledFurniture>;
         return <AddedFurniture key={item.id} item={item} />;
       })}
