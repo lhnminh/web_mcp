@@ -650,7 +650,7 @@ function Sink({ item }: { item: SceneObject }) {
     <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="basin" label="Sink basin" role="surface" defaultColor="#dce4df" position={[0, 0.83, 0]} size={[0.65, 0.06, 0.5]} radius={0.04} />
     <mesh position={[0, 0.865, 0]} rotation={[-Math.PI / 2, 0, 0]}><torusGeometry args={[0.15, 0.018, 12, 28]} /><meshStandardMaterial color="#5b747c" metalness={.55} roughness={.28} /></mesh>
     <mesh position={[0, 0.955, -0.17]}><cylinderGeometry args={[0.025, 0.025, 0.19, 14]} /><meshStandardMaterial color={palette.brass} metalness={.72} roughness={.22} /></mesh>
-    <Box position={[0.075, 1.037, -0.17]} size={[0.15, 0.025, 0.025]} color={palette.brass} radius={0.01} />
+    <Box position={[0, 1.037, -0.095]} size={[0.025, 0.025, 0.15]} color={palette.brass} radius={0.01} />
   </group>;
 }
 
