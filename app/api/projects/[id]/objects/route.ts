@@ -63,7 +63,6 @@ export async function POST(request: Request, context: Context) {
       kind: 'furniture',
       catalogItemId,
       roomId: body.roomId,
-      dimensions: dimensions as { width: number; depth: number; height: number },
       transform: {
         position: { x: center.x / room.boundary.length + offset, y: room.floorElevation, z: center.y / room.boundary.length + offset },
         rotation: { x: 0, y: 0, z: 0 },

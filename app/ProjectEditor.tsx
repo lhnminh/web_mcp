@@ -138,7 +138,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       return (sceneLayout?.elements ?? []).flatMap((element) => {
         const item = catalog.get(element.catalogItemId);
         if (!item || !roomIds.has(element.roomId)) return [];
-        return [{ id: element.id, catalogItemId: element.catalogItemId, name: item.name, category: item.category, userAdded: item.metadata?.userAdded === true, roomId: element.roomId, dimensions: pendingObjectDimensions.current.get(element.id) ?? element.dimensions ?? item.dimensions, transform: element.transform }];
+        return [{ id: element.id, catalogItemId: element.catalogItemId, name: item.name, category: item.category, userAdded: item.metadata?.userAdded === true, roomId: element.roomId, dimensions: pendingObjectDimensions.current.get(element.id) ?? item.dimensions, transform: element.transform }];
       });
     };
     setProjectRevision(project.revision);
@@ -576,7 +576,8 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
     return true;
   };
 
-  const saveObjectDimensions = (objectId: string, dimensions: SceneObject['dimensions']) => {
+  const saveObjectDimensions = (objectId: string, dimensions: SceneObject['dimensions'], beforeDimensions: SceneObject['dimensions']) => {
+    void beforeDimensions;
     const item = sceneObjects[layout].find((candidate) => candidate.id === objectId);
     if (!item) return;
     saveObjectTransform(objectId, { position: { x: item.transform.position.x, z: item.transform.position.z }, dimensions });
@@ -1018,7 +1019,6 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
     setDepth(next.depth);
     setHeight(next.height);
     onPreviewApartment(next.width, next.depth, next.height);
-    void saveApartmentValues(next);
     return next;
   };
 
@@ -1039,7 +1039,6 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
     const next = { ...wallValues, [key]: value };
     setWallValues(next);
     if (selectedWall) onPreviewWall(selectedWall.id, wallPatch(next));
-    void saveWallValues(next);
     return next;
   };
 
@@ -1047,7 +1046,6 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
     const next = { ...openingValues, ...patch };
     setOpeningValues(next);
     if (selectedOpening) onPreviewOpening(selectedOpening.id, selectedWindow ? { offset: next.offset, width: next.width, height: next.height, sillHeight: next.sillHeight } : next);
-    void saveOpeningValues(next);
     return next;
   };
 
@@ -1790,7 +1788,7 @@ function DimensionPreview({ name, dimensions }: { name: string; dimensions: Scen
   );
 }
 
-function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onDeselect, onResize, onCommitResize }: { rooms: RoomElement[]; loading: boolean; onAdd: (input: AddObjectInput) => Promise<string | null>; selectedObject?: SceneObject; onDeselect: () => void; onResize: (id: string, dimensions: SceneObject['dimensions']) => boolean; onCommitResize: (id: string, dimensions: SceneObject['dimensions']) => void }) {
+function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onDeselect, onResize, onCommitResize }: { rooms: RoomElement[]; loading: boolean; onAdd: (input: AddObjectInput) => Promise<string | null>; selectedObject?: SceneObject; onDeselect: () => void; onResize: (id: string, dimensions: SceneObject['dimensions']) => boolean; onCommitResize: (id: string, dimensions: SceneObject['dimensions'], before: SceneObject['dimensions']) => void }) {
   const [presetIndex, setPresetIndex] = useState(0);
   const [name, setName] = useState(objectPresets[0].name);
   const [roomId, setRoomId] = useState<RoomId>('living');
@@ -1798,6 +1796,7 @@ function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onDeselect, onR
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const resizeStart = useRef<SceneObject['dimensions'] | null>(null);
 
   const resetDraftToPreset = (index: number) => {
     const preset = objectPresets[index];
@@ -1840,9 +1839,16 @@ function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onDeselect, onR
   const activePresetIndex = selectedObject ? objectPresets.findIndex((preset) => getFurnitureKind(preset.category, preset.name) === getFurnitureKind(selectedObject.category, selectedObject.name)) : presetIndex;
   const setDimension = (key: keyof SceneObject['dimensions'], value: number) => {
     const next = { ...activeDimensions, [key]: Math.max(0.1, value || 0.1) };
-    if (selectedObject && onResize(selectedObject.id, next)) onCommitResize(selectedObject.id, next);
+    if (selectedObject) onResize(selectedObject.id, next);
     else setDimensions(next);
   };
+  const commitDimension = (key: keyof SceneObject['dimensions'], value: number) => {
+    if (selectedObject) {
+      onCommitResize(selectedObject.id, { ...selectedObject.dimensions, [key]: value }, resizeStart.current ?? selectedObject.dimensions);
+      resizeStart.current = null;
+    }
+  };
+
   return (
     <aside className="add-object-panel">
       <div className="add-object-heading"><span className="eyebrow">OBJECT LIBRARY</span><h2>Add object</h2><p>Choose an object, confirm its size, then place it into a room.</p></div>
@@ -1851,7 +1857,7 @@ function AddObjectPanel({ rooms, loading, onAdd, selectedObject, onDeselect, onR
         <label className="field-label">NAME<input required readOnly={Boolean(selectedObject)} value={activeName} onChange={(event) => setName(event.target.value)} /></label>
         <label className="field-label">PLACE IN<select disabled={Boolean(selectedObject)} value={rooms.some((room) => room.id === activeRoomId) ? activeRoomId : rooms[0]?.id ?? ''} onChange={(event) => setRoomId(event.target.value)}>{rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></label>
         <DimensionPreview name={selectedObject?.name ?? name} dimensions={activeDimensions} />
-        <fieldset className="rhs-dimension-sliders"><legend>{selectedObject ? `EDIT ${selectedObject.name.toUpperCase()} · METERS` : 'DIMENSIONS · METERS'}</legend>{(['width', 'depth', 'height'] as const).map((key) => <label key={key}><span>{key[0].toUpperCase()} · {key.toUpperCase()}</span><input type="range" min="0.1" max={key === 'height' ? 3 : 4} step="0.01" value={activeDimensions[key]} onChange={(event) => setDimension(key, Number(event.target.value))} /><output>{activeDimensions[key].toFixed(2)}</output></label>)}</fieldset>
+        <fieldset className="rhs-dimension-sliders"><legend>{selectedObject ? `EDIT ${selectedObject.name.toUpperCase()} · METERS` : 'DIMENSIONS · METERS'}</legend>{(['width', 'depth', 'height'] as const).map((key) => <label key={key}><span>{key[0].toUpperCase()} · {key.toUpperCase()}</span><input type="range" min="0.1" max={key === 'height' ? 3 : 4} step="0.01" value={activeDimensions[key]} onPointerDown={() => { resizeStart.current = selectedObject ? { ...selectedObject.dimensions } : null; }} onKeyDown={() => { if (!resizeStart.current && selectedObject) resizeStart.current = { ...selectedObject.dimensions }; }} onChange={(event) => setDimension(key, Number(event.target.value))} onPointerUp={(event) => commitDimension(key, Number(event.currentTarget.value))} onKeyUp={(event) => commitDimension(key, Number(event.currentTarget.value))} /><output>{activeDimensions[key].toFixed(2)}</output></label>)}</fieldset>
         <button className="place-object" disabled={loading || saving || !activeName.trim()}>{saving ? 'Placing…' : loading ? 'Loading project…' : '＋ Place in room'}</button>
         {error && <p className="object-form-message error" role="alert">{error}</p>}
         {success && <p className="object-form-message success" role="status">✓ {success}</p>}

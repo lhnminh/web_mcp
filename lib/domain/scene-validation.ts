@@ -159,12 +159,6 @@ export function parseScene(value: unknown): SceneDocument {
       if (!roomIds.has(element.roomId)) {
         throw new SceneValidationError(`furniture ${id} references missing room ${element.roomId}`);
       }
-      if (element.dimensions !== undefined) {
-        if (!isRecord(element.dimensions)) throw new SceneValidationError(`furniture ${id} dimensions must be an object`);
-        positive(element.dimensions.width, `furniture ${id} width`);
-        positive(element.dimensions.depth, `furniture ${id} depth`);
-        positive(element.dimensions.height, `furniture ${id} height`);
-      }
       parseTransform(element.transform, `furniture ${id} transform`);
       finite(element.clearance, `furniture ${id} clearance`);
       if (element.clearance < 0) throw new SceneValidationError(`furniture ${id} clearance cannot be negative`);
