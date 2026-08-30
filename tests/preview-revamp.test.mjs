@@ -16,6 +16,11 @@ test('2D plan omits decorative sheet metadata and the fake imperial scale', () =
   assert.match(styles, /\.app-shell \.plan-workspace::after \{ display: none; \}/);
 });
 
+test('the Dwellwise project header links directly back to the apartment home page', () => {
+  assert.match(editor, /<Link className="brand-lockup brand-home-link" href="\/" aria-label="Dwellwise home">/);
+  assert.match(styles, /\.brand-home-link\{color:inherit;text-decoration:none;cursor:pointer\}/);
+});
+
 test('furniture keeps keyboard nudging without a permanent instruction banner', () => {
   assert.equal(editor.includes('Drag anywhere in the apartment · arrows move · toolbar rotates/removes'), false);
   assert.match(editor, /event\.shiftKey \? 0\.25 : 0\.1/);

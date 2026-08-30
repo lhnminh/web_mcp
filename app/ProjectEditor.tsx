@@ -823,14 +823,14 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   if (projectLoadError) {
     return (
       <main className="project-unavailable">
-        <div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><span /></div><div className="brand-name">Dwellwise</div></div>
+        <Link className="brand-lockup brand-home-link" href="/" aria-label="Dwellwise home"><div className="brand-mark" aria-hidden="true"><span /></div><div className="brand-name">Dwellwise</div></Link>
         <section><span>PROJECT UNAVAILABLE</span><h1>This apartment could not be opened.</h1><p>It may have been deleted, or it may belong to a different browser.</p><Link href="/">← Return to your apartments</Link></section>
       </main>
     );
   }
 
   if (!project) {
-    return <main className="project-loading"><div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><span /></div><div className="brand-name">Dwellwise</div></div><p>Loading apartment…</p></main>;
+    return <main className="project-loading"><Link className="brand-lockup brand-home-link" href="/" aria-label="Dwellwise home"><div className="brand-mark" aria-hidden="true"><span /></div><div className="brand-name">Dwellwise</div></Link><p>Loading apartment…</p></main>;
   }
 
   return (
@@ -886,7 +886,7 @@ function Header({ projectName, onRename, resetting, onReset }: { projectName: st
 
   return (
     <header className="topbar">
-      <div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><span /></div><div className="brand-name">Dwellwise</div></div>
+      <Link className="brand-lockup brand-home-link" href="/" aria-label="Dwellwise home"><div className="brand-mark" aria-hidden="true"><span /></div><div className="brand-name">Dwellwise</div></Link>
       <div className="project-title">
         <Link className="icon-button back" href="/" aria-label="Back to apartments">←</Link>
         {editing ? (
