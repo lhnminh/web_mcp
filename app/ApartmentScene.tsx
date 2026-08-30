@@ -685,7 +685,7 @@ function Shower({ item }: { item: SceneObject }) {
 
 function Bathtub({ item }: { item: SceneObject }) {
   return <group>
-    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="shell" label="Bathtub base" role="surface" defaultColor="#dce4df" position={[0, 0.06, 0]} size={[1.5, 0.12, 0.5]} radius={0.12} />
+    <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="shell" label="Bathtub base" role="surface" defaultColor="#dce4df" position={[0, 0.06, 0]} size={[1.6, 0.12, 0.5]} radius={0.12} />
     <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="shell" label="Bathtub rail" role="surface" defaultColor="#dce4df" position={[0, 0.25, -0.31]} size={[1.6, 0.38, 0.13]} radius={0.12} />
     <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="shell" label="Bathtub rail" role="surface" defaultColor="#dce4df" position={[0, 0.25, 0.31]} size={[1.6, 0.38, 0.13]} radius={0.12} />
     <FinishBox scope="furniture" targetId={item.id} owner={item.name} part="basin" label="Bathtub basin" role="surface" defaultColor="#f7f6ec" position={[0, 0.135, 0]} size={[1.46, 0.035, 0.48]} radius={0.11} />
