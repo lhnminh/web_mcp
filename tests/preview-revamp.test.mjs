@@ -108,6 +108,13 @@ test('furniture selection and add-panel state cannot drift apart', () => {
   assert.match(editor, /disabled=\{Boolean\(selectedObject\)\} value=\{rooms\.some\(\(room\) => room\.id === activeRoomId\)/);
 });
 
+test('saving one furniture size cannot reset another furniture item with a pending live edit', () => {
+  assert.match(editor, /const pendingObjectDimensions = useRef\(new Map<string, SceneObject\['dimensions'\]>\(\)\)/);
+  assert.match(editor, /dimensions: pendingObjectDimensions\.current\.get\(element\.id\) \?\? item\.dimensions/);
+  assert.match(editor, /pendingObjectDimensions\.current\.set\(objectId, dimensions\);/);
+  assert.match(editor, /if \(transform\.dimensions && JSON\.stringify\(pendingObjectDimensions\.current\.get\(objectId\)\) === JSON\.stringify\(transform\.dimensions\)\) pendingObjectDimensions\.current\.delete\(objectId\);[\s\S]*?syncProject\(result\)/);
+});
+
 test('the static north arrow is replaced by a saved cardinal compass', () => {
   assert.equal(editor.includes('<div className="north-marker">'), false);
   assert.match(editor, /function PlanCompass/);

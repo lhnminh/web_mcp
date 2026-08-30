@@ -110,6 +110,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
   const [pendingReset, setPendingReset] = useState<{ projectId: string; projectName: string; revision: number } | null>(null);
   const projectRevisionRef = useRef<number | null>(null);
   const projectRef = useRef<ApiProject | null>(null);
+  const pendingObjectDimensions = useRef(new Map<string, SceneObject['dimensions']>());
   const moveSaveQueue = useRef<Promise<void>>(Promise.resolve());
   const undoStack = useRef<HistoryEntry[]>([]);
   const redoStack = useRef<HistoryEntry[]>([]);
@@ -137,7 +138,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       return (sceneLayout?.elements ?? []).flatMap((element) => {
         const item = catalog.get(element.catalogItemId);
         if (!item || !roomIds.has(element.roomId)) return [];
-        return [{ id: element.id, catalogItemId: element.catalogItemId, name: item.name, category: item.category, userAdded: item.metadata?.userAdded === true, roomId: element.roomId, dimensions: item.dimensions, transform: element.transform }];
+        return [{ id: element.id, catalogItemId: element.catalogItemId, name: item.name, category: item.category, userAdded: item.metadata?.userAdded === true, roomId: element.roomId, dimensions: pendingObjectDimensions.current.get(element.id) ?? item.dimensions, transform: element.transform }];
       });
     };
     setProjectRevision(project.revision);
@@ -387,11 +388,13 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
         });
         const result = await response.json() as ApiProject & { error?: string; current?: ApiProject };
         if (response.ok) {
+          if (transform.dimensions && JSON.stringify(pendingObjectDimensions.current.get(objectId)) === JSON.stringify(transform.dimensions)) pendingObjectDimensions.current.delete(objectId);
           syncProject(result);
           recordSceneEdit(current.scene, result.scene);
           if (!allowOverlap) setCollisionMessage('');
           return null;
         }
+        if (transform.dimensions && JSON.stringify(pendingObjectDimensions.current.get(objectId)) === JSON.stringify(transform.dimensions)) pendingObjectDimensions.current.delete(objectId);
         if (result.current) syncProject(result.current);
         else syncProject(current);
         const message = result.error ?? 'The object change could not be saved.';
@@ -400,6 +403,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       } catch (error) {
         if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) throw error;
         const message = 'The object change could not be saved. Check your connection and try again.';
+        if (transform.dimensions && JSON.stringify(pendingObjectDimensions.current.get(objectId)) === JSON.stringify(transform.dimensions)) pendingObjectDimensions.current.delete(objectId);
         syncProject(current);
         setCollisionMessage(message);
         return message;
@@ -567,6 +571,7 @@ export default function ProjectEditor({ projectId }: { projectId: string }) {
       return false;
     }
     setCollisionMessage('');
+    pendingObjectDimensions.current.set(objectId, dimensions);
     setSceneObjects((current) => ({ ...current, [layout]: current[layout].map((object) => object.id === objectId ? candidate : object) }));
     return true;
   };
