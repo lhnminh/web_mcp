@@ -242,6 +242,12 @@ const validateOpening = (scene: SceneDocument, opening: OpeningElement, excludin
   return null;
 };
 
+const overlappingOpening = (scene: SceneDocument, opening: OpeningElement, excludingId: string) => scene.architecture.find((element): element is OpeningElement => element.kind === 'opening'
+  && element.id !== excludingId
+  && element.wallId === opening.wallId
+  && opening.offset < element.offset + element.width
+  && opening.offset + opening.width > element.offset);
+
 export function updateOpeningCommand(scene: SceneDocument, openingId: string, patch: OpeningPatch): ArchitectureCommandResult {
   const opening = scene.architecture.find((element): element is OpeningElement => element.kind === 'opening' && element.id === openingId);
   if (!opening) return failure('NOT_FOUND', 'The requested opening was not found.');
@@ -249,8 +255,14 @@ export function updateOpeningCommand(scene: SceneDocument, openingId: string, pa
   if (Object.keys(normalizedPatch).length === 0) return failure('INVALID_INPUT', 'Provide at least one opening property to update.');
   if (opening.openingType === 'window' && (normalizedPatch.swing !== undefined || normalizedPatch.swingSide !== undefined)) return failure('INVALID_INPUT', 'Door swing properties cannot be applied to a window.');
   if (opening.openingType === 'door' && normalizedPatch.sillHeight !== undefined && normalizedPatch.sillHeight !== 0) return failure('INVALID_INPUT', 'Doors must have a sill height of zero.');
-  const nextOpening = { ...opening, ...normalizedPatch };
+  let nextOpening = { ...opening, ...normalizedPatch };
   if (![nextOpening.offset, nextOpening.width, nextOpening.height, nextOpening.sillHeight].every(Number.isFinite)) return failure('INVALID_INPUT', 'Opening values must be finite numbers.');
+  const onlyMoving = Object.keys(normalizedPatch).length === 1 && normalizedPatch.offset !== undefined;
+  const collision = onlyMoving ? overlappingOpening(scene, nextOpening, openingId) : undefined;
+  if (collision) {
+    const startedOnLeft = opening.offset + opening.width / 2 <= collision.offset + collision.width / 2;
+    nextOpening = { ...nextOpening, offset: startedOnLeft ? collision.offset - nextOpening.width : collision.offset + collision.width };
+  }
   const validation = validateOpening(scene, nextOpening, openingId);
   if (validation) return validation;
   const architecture = scene.architecture.map((element) => element.id === openingId ? nextOpening : element);
