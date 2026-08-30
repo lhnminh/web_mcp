@@ -29,6 +29,7 @@ export type WebMcpDocument = Document & {
 export type WebMcpErrorCode =
   | 'NOT_READY'
   | 'NOT_FOUND'
+  | 'TARGET_NOT_FOUND'
   | 'INVALID_INPUT'
   | 'REVISION_CONFLICT'
   | 'COLLISION'

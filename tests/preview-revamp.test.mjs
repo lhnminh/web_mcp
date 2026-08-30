@@ -57,6 +57,9 @@ test('3D finish targeting highlights surfaces and offers a furniture part picker
   assert.match(scene, /if \(scope === 'furniture'\) finishes\.openFurniturePartPicker\(targetId\)/);
   assert.match(scene, /function FinishPartPicker/);
   assert.match(scene, /function finishOptionsForFurniture/);
+  assert.match(scene, /return finishTargetsForFurniture\(item\)\.map\(finishSelectionForTarget\)/);
+  assert.match(scene, /new Map\(buildFinishTargets\(props\.architecture, props\.objects\)/);
+  assert.equal(scene.includes('const options: Record<string, FinishSelection[]>'), false, 'the renderer must not own a parallel finish-part catalog');
   assert.match(scene, /onPointerMissed=\{\(\) => \{ setHoveredTargetKey\(null\); setPartPicker\(null\); \}\}/);
   assert.match(styles, /\.three-canvas>\.finish-part-picker/);
 });

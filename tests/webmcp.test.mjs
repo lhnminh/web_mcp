@@ -88,10 +88,39 @@ test('finish moods remain visibly distinct for muted, bright, dark, and light co
   }
 });
 
+test('shared finish catalog exposes deterministic semantic surfaces and prunes invented overrides', () => {
+  const architecture = [
+    { id: 'room-1', kind: 'room', name: 'Living room', boundary: [], floorElevation: 0, ceilingHeight: 2.7 },
+    { id: 'wall-1', kind: 'wall', start: { x: 0, y: 0 }, end: { x: 4, y: 0 }, thickness: 0.12, height: 2.7 },
+    { id: 'door-1', kind: 'opening', openingType: 'door', wallId: 'wall-1', offset: 1, width: 0.9, height: 2, sillHeight: 0 },
+    { id: 'window-1', kind: 'opening', openingType: 'window', wallId: 'wall-1', offset: 2, width: 1.2, height: 1.2, sillHeight: 0.8 },
+  ];
+  const targets = materialsModule.buildFinishTargets(architecture, [{ id: 'desk-1', name: 'Desk', category: 'desk' }]);
+  assert.equal(new Set(targets.map((target) => target.targetKey)).size, targets.length);
+  assert.deepEqual(plain(targets.find((target) => target.targetKey === 'furniture:desk-1:desktop')), {
+    targetKey: 'furniture:desk-1:desktop', scope: 'furniture', entityId: 'desk-1', ownerLabel: 'Desk', part: 'desktop', partLabel: 'Desktop', role: 'wood', defaultColor: '#b98f68',
+  });
+  assert.ok(targets.some((target) => target.targetKey === 'room:room-1:floor'));
+  assert.ok(targets.some((target) => target.targetKey === 'wall:wall-1:surface'));
+  assert.ok(targets.some((target) => target.targetKey === 'opening:door-1:panel'));
+  assert.ok(targets.some((target) => target.targetKey === 'opening:window-1:frame'));
+  assert.equal(materialsModule.finishTargetsForFurniture({ id: 'custom-table', name: 'Side table', category: 'table' })[0].defaultColor, '#765b45');
+
+  const sceneWithOverrides = {
+    schemaVersion: 1, coordinateSystem: 'right-handed-y-up', units: 'meters', northAngle: 0,
+    catalog: [{ id: 'desk', name: 'Desk', category: 'desk', dimensions: { width: 1, depth: 1, height: 1 } }],
+    architecture,
+    layouts: [{ id: 'layout-a', name: 'Layout A', elements: [{ id: 'desk-1', kind: 'furniture', catalogItemId: 'desk', roomId: 'room-1', clearance: 0, transform: { position: { x: 1, y: 0, z: 1 }, rotation: { x: 0, y: 0, z: 0 } } }] }],
+    materialOverrides: { 'furniture:desk-1:desktop': '#123456', 'furniture:desk-1:invented': '#654321', 'opening:missing:frame': '#abcdef' },
+  };
+  assert.deepEqual(plain(materialsModule.pruneMaterialOverrides(sceneWithOverrides).materialOverrides), { 'furniture:desk-1:desktop': '#123456' });
+});
+
 function assertClosedObjectSchemas(schema, path = 'inputSchema') {
   if (!schema || typeof schema !== 'object') return;
   if (schema.type === 'object') assert.equal(schema.additionalProperties, false, `${path} must reject additional properties`);
   for (const [key, value] of Object.entries(schema.properties ?? {})) assertClosedObjectSchemas(value, `${path}.properties.${key}`);
+  for (const keyword of ['oneOf', 'anyOf', 'allOf']) for (const [index, value] of (schema[keyword] ?? []).entries()) assertClosedObjectSchemas(value, `${path}.${keyword}[${index}]`);
 }
 
 const scene = {
@@ -119,6 +148,7 @@ const snapshot = {
   architecturePreviewActive: false, confirmationActive: false,
   availableTools: [
     'dwellwise.get_project_summary', 'dwellwise.list_furniture', 'dwellwise.list_architecture',
+    'dwellwise.list_finish_targets',
     'dwellwise.rename_project', 'dwellwise.add_furniture', 'dwellwise.update_furniture',
     'dwellwise.remove_furniture', 'dwellwise.update_finish', 'dwellwise.resize_apartment',
     'dwellwise.rename_room', 'dwellwise.add_wall', 'dwellwise.update_wall', 'dwellwise.remove_wall',
@@ -198,7 +228,7 @@ test('editor exposes all MVP tools with closed bounded schemas', () => {
   };
   const tools = editorModule.buildEditorTools(commands);
   assert.deepEqual(Array.from(tools, (tool) => tool.name), [
-    'dwellwise.get_project_summary', 'dwellwise.list_furniture', 'dwellwise.list_architecture',
+    'dwellwise.get_project_summary', 'dwellwise.list_furniture', 'dwellwise.list_architecture', 'dwellwise.list_finish_targets',
     'dwellwise.rename_project', 'dwellwise.add_furniture', 'dwellwise.update_furniture',
     'dwellwise.remove_furniture', 'dwellwise.update_finish', 'dwellwise.resize_apartment',
     'dwellwise.rename_room', 'dwellwise.add_wall', 'dwellwise.update_wall',
@@ -214,9 +244,66 @@ test('editor exposes all MVP tools with closed bounded schemas', () => {
     assert.ok(tool.name.length <= 128);
     assertClosedObjectSchemas(tool.inputSchema);
   });
-  for (const name of ['dwellwise.get_project_summary', 'dwellwise.list_furniture', 'dwellwise.list_architecture']) {
+  for (const name of ['dwellwise.get_project_summary', 'dwellwise.list_furniture', 'dwellwise.list_architecture', 'dwellwise.list_finish_targets']) {
     assert.equal(byName(tools, name).annotations.readOnlyHint, true);
   }
+});
+
+test('finish tools discover fresh targets, use trusted roles, reset, and reject stale or caller-classified targets', async () => {
+  const calls = [];
+  let finishSnapshot = structuredClone(snapshot);
+  const unused = async () => resultModule.toolSuccess('unused');
+  const tools = editorModule.buildEditorTools({
+    getSnapshot: () => finishSnapshot,
+    renameProject: unused, addFurniture: unused, updateFurniture: unused,
+    updateFinish: async (target, color) => {
+      calls.push({ target: plain(target), color });
+      const materialOverrides = { ...(finishSnapshot.project.scene.materialOverrides ?? {}) };
+      if (color === null) delete materialOverrides[target.targetKey];
+      else materialOverrides[target.targetKey] = color;
+      finishSnapshot = { ...finishSnapshot, project: { ...finishSnapshot.project, revision: finishSnapshot.project.revision + 1, scene: { ...finishSnapshot.project.scene, materialOverrides } } };
+      return resultModule.toolSuccess('finish changed');
+    },
+    removeFurniture: unused, resizeApartment: unused, renameRoom: unused,
+    addWall: unused, updateWall: unused, removeWall: unused, addExteriorCorner: unused, removeExteriorCorner: unused,
+    addOpening: unused, updateOpening: unused, removeOpening: unused,
+    setEditorView: unused, setSunlightPreview: unused, selectEntity: unused,
+    undo: unused, redo: unused, setPlanZoom: unused, reset3dCamera: unused, goToDashboard: unused, prepareResetProject: unused,
+  });
+
+  const listed = await byName(tools, 'dwellwise.list_finish_targets').execute({}, executeOptions());
+  assert.equal(listed.ok, true);
+  assert.equal(listed.revision, 7);
+  assert.ok(listed.data.targets.length > 0, 'fresh projects must expose targets without overrides');
+  const desktop = listed.data.targets.find((target) => target.targetKey === 'furniture:object-desk:desktop');
+  assert.deepEqual(plain(desktop), {
+    targetKey: 'furniture:object-desk:desktop', scope: 'furniture', entityId: 'object-desk', ownerLabel: 'Standing desk', part: 'desktop', partLabel: 'Desktop', role: 'wood', defaultColor: '#b98f68', effectiveColor: '#b98f68', overridden: false,
+  });
+  const furnitureOnly = await byName(tools, 'dwellwise.list_finish_targets').execute({ scope: 'furniture', entityId: 'object-desk' }, executeOptions());
+  assert.equal(furnitureOnly.data.targets.length, 4);
+  assert.equal(furnitureOnly.data.targets.every((target) => target.scope === 'furniture'), true);
+
+  const applied = await byName(tools, 'dwellwise.update_finish').execute({ targetKey: desktop.targetKey, operation: 'apply', color: '#ff00ff', mood: 'soft' }, executeOptions());
+  assert.equal(applied.ok, true);
+  assert.equal(calls[0].target.role, 'wood');
+  assert.equal(calls[0].color, materialsModule.harmonizeColor('#ff00ff', 'wood', 'soft'));
+  const overridden = await byName(tools, 'dwellwise.list_finish_targets').execute({ overridden: true }, executeOptions());
+  assert.deepEqual(plain(overridden.data.targets.map((target) => target.targetKey)), [desktop.targetKey]);
+
+  const reset = await byName(tools, 'dwellwise.update_finish').execute({ targetKey: desktop.targetKey, operation: 'reset' }, executeOptions());
+  assert.equal(reset.ok, true);
+  assert.equal(calls[1].color, null);
+  const alreadyReset = await byName(tools, 'dwellwise.update_finish').execute({ targetKey: desktop.targetKey, operation: 'reset' }, executeOptions());
+  assert.equal(alreadyReset.revision, 9);
+  assert.equal(calls.length, 2, 'idempotent reset must not create another write');
+
+  const stale = await byName(tools, 'dwellwise.update_finish').execute({ targetKey: 'furniture:missing:desktop', operation: 'apply', color: '#123456' }, executeOptions());
+  assert.deepEqual({ ok: stale.ok, code: stale.code, revision: stale.currentRevision }, { ok: false, code: 'TARGET_NOT_FOUND', revision: 9 });
+  const callerRole = await byName(tools, 'dwellwise.update_finish').execute({ targetKey: desktop.targetKey, operation: 'apply', color: '#123456', role: 'metal' }, executeOptions());
+  assert.deepEqual({ ok: callerRole.ok, code: callerRole.code }, { ok: false, code: 'INVALID_INPUT' });
+  const resetWithColor = await byName(tools, 'dwellwise.update_finish').execute({ targetKey: desktop.targetKey, operation: 'reset', color: '#123456' }, executeOptions());
+  assert.deepEqual({ ok: resetWithColor.ok, code: resetWithColor.code }, { ok: false, code: 'INVALID_INPUT' });
+  assert.equal(calls.length, 2);
 });
 
 test('editor read tools return bounded summaries without raw or private project state', async () => {
@@ -272,9 +359,14 @@ test('list tools paginate, filter, and reject cursors after consistency changes'
   assert.equal(firstArchitecture.data.architecture[0].kind, 'opening');
 
   const firstFurniture = await byName(editorTools, 'dwellwise.list_furniture').execute({ limit: 1 }, executeOptions());
+  const firstFinishTargets = await byName(editorTools, 'dwellwise.list_finish_targets').execute({ scope: 'furniture', limit: 1 }, executeOptions());
+  assert.equal(firstFinishTargets.data.targets.length, 1);
+  assert.equal(typeof firstFinishTargets.data.nextCursor, 'string');
   currentSnapshot = { ...currentSnapshot, project: { ...currentSnapshot.project, revision: 8 } };
   const staleFurniture = await byName(editorTools, 'dwellwise.list_furniture').execute({ limit: 1, cursor: firstFurniture.data.nextCursor }, executeOptions());
   assert.deepEqual({ ok: staleFurniture.ok, code: staleFurniture.code }, { ok: false, code: 'REVISION_CONFLICT' });
+  const staleFinishTargets = await byName(editorTools, 'dwellwise.list_finish_targets').execute({ scope: 'furniture', limit: 1, cursor: firstFinishTargets.data.nextCursor }, executeOptions());
+  assert.deepEqual({ ok: staleFinishTargets.ok, code: staleFinishTargets.code }, { ok: false, code: 'REVISION_CONFLICT' });
 });
 
 test('action manifest accounts for every registered tool and documents every exclusion', () => {

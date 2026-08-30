@@ -16,7 +16,7 @@ Irreversible actions such as deleting a project or resetting the entire apartmen
 
 ## Current state
 
-Implementation is in progress. The original MVP exposed 14 tools. The full-parity implementation now provides 31 route-specific registrations representing 30 unique tools, because `rename_project` is available on both the dashboard and editor routes.
+Implementation is in progress. The original MVP exposed 14 tools. The full-parity implementation now provides 33 route-specific registrations representing 32 unique tools, because `rename_project` is available on both the dashboard and editor routes.
 
 Implemented after PRD approval:
 
@@ -30,6 +30,7 @@ Implemented after PRD approval:
 - shared atomic room, wall, exterior-corner, and opening commands used by both the human editor and WebMCP;
 - bounded WebMCP tools for every approved architecture action family; and
 - accessible, expiring, prepare-only deletion and reset confirmations guarded by trusted human activation.
+- shared semantic 3D finish targets with paginated discovery, trusted material roles, stale-target rejection, apply/reset parity, and orphaned-override pruning.
 
 All semantic action families in the checked-in manifest are now covered or explicitly UI-only. Remaining work is hardening: effect metadata, complete security/integration coverage, rollout-family flags, telemetry expansion, and broader real-browser regression coverage.
 
@@ -44,9 +45,11 @@ All semantic action families in the checked-in manifest are now covered or expli
 - `dwellwise.get_project_summary`
 - `dwellwise.list_furniture`
 - `dwellwise.list_architecture`
+- `dwellwise.list_finish_targets`
 - `dwellwise.rename_project`
 - `dwellwise.add_furniture`
 - `dwellwise.update_furniture`
+- `dwellwise.update_finish`
 - `dwellwise.remove_furniture`
 - `dwellwise.resize_apartment`
 - `dwellwise.set_editor_view`
@@ -183,7 +186,7 @@ The following catalog includes the existing MVP tools and proposed parity additi
 
 `list_projects` should refresh from the same-origin API before returning, rather than only projecting potentially stale React state. The visible dashboard list updates with the result.
 
-All list tools use cursor pagination with a bounded `limit`. `list_furniture` supports an optional `roomId` filter, and `list_architecture` supports optional `kind` and parent-entity filters. Responses include `nextCursor` only when another page exists.
+All list tools use cursor pagination with a bounded `limit`. `list_furniture` supports an optional `roomId` filter, `list_architecture` supports optional `kind` and parent-entity filters, and `list_finish_targets` supports scope, entity, and override-state filters. Responses include `nextCursor` only when another page exists.
 
 ### Project and editor reads
 
@@ -192,6 +195,7 @@ All list tools use cursor pagination with a bounded `limit`. `list_furniture` su
 | `dwellwise.get_project_summary` | Existing, enhance | Read | Return project, view, selection, history availability, and entity counts. |
 | `dwellwise.list_furniture` | Existing | Read | Return bounded furniture details for the active layout. |
 | `dwellwise.list_architecture` | Existing | Read | Return bounded rooms, walls, doors, and windows. |
+| `dwellwise.list_finish_targets` | Existing | Read | Return valid editable 3D surfaces with trusted material roles and effective colors. |
 
 `get_project_summary` adds:
 
@@ -213,6 +217,15 @@ Read pagination is stable within the project revision returned by the first page
 | `dwellwise.remove_furniture` | Existing | Undoable write | Remove an unlocked furniture item. |
 
 The current furniture tools already provide semantic parity for presets, numeric size controls, drag movement, arrow-key movement, and rotation buttons. No separate tools are required for those UI entry points.
+
+### 3D material finishes
+
+| Tool | Status | Effect | Purpose |
+|---|---|---:|---|
+| `dwellwise.list_finish_targets` | Existing | Read | Discover valid furniture parts and architectural surfaces on a fresh or customized project. |
+| `dwellwise.update_finish` | Existing, enhanced | Undoable write | Apply a material-aware color or restore the target's original finish. |
+
+Finish tools use one shared semantic target catalog with the human Finish Studio. The update tool resolves material roles from trusted current project state, rejects invented or stale keys, and never accepts caller-supplied material classifications. Full behavior is specified in `PRD-WEBMCP-3D-FINISH-PARITY.md`.
 
 ### Rooms and apartment dimensions
 

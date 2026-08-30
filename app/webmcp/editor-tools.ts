@@ -4,12 +4,13 @@ import { pageInputSchemaProperties, paginate, parsePageInput } from './paginatio
 import { toolFailure, toolSuccess } from './result';
 import { renameProjectInputSchema } from './schemas';
 import type { WebMcpResult, WebMcpTool } from './types';
-import { harmonizeColor, isMaterialKey, normalizeHexColor, type FinishMood, type MaterialRole } from '@/lib/domain/materials';
+import { finishTargetStates, harmonizeColor, isMaterialKey, normalizeHexColor, type FinishMood, type FinishTarget } from '@/lib/domain/materials';
 
 export const CURRENT_EDITOR_TOOL_NAMES = [
   'dwellwise.get_project_summary',
   'dwellwise.list_furniture',
   'dwellwise.list_architecture',
+  'dwellwise.list_finish_targets',
   'dwellwise.rename_project',
   'dwellwise.add_furniture',
   'dwellwise.update_furniture',
@@ -87,7 +88,7 @@ export type EditorToolDependencies = {
   renameProject: (projectId: string | undefined, name: string, signal: AbortSignal) => Promise<WebMcpResult>;
   addFurniture: (input: AddFurnitureToolInput, signal: AbortSignal) => Promise<WebMcpResult>;
   updateFurniture: (input: UpdateFurnitureToolInput, signal: AbortSignal) => Promise<WebMcpResult>;
-  updateFinish: (targetKey: string, color: string, signal: AbortSignal) => Promise<WebMcpResult>;
+  updateFinish: (target: FinishTarget, color: string | null, signal: AbortSignal) => Promise<WebMcpResult>;
   removeFurniture: (furnitureId: string, signal: AbortSignal) => Promise<WebMcpResult>;
   resizeApartment: (width: number, depth: number, height: number, signal: AbortSignal) => Promise<WebMcpResult>;
   renameRoom: (roomId: string, name: string, signal: AbortSignal) => Promise<WebMcpResult>;
@@ -205,6 +206,10 @@ export function architectureSummary(architecture: ArchitecturalElement[]) {
   });
 }
 
+export function finishTargetSummary(snapshot: EditorToolSnapshot) {
+  return finishTargetStates(snapshot.project.scene.architecture, snapshot.objects, snapshot.project.scene.materialOverrides ?? {});
+}
+
 const snapshotOrFailure = (dependencies: EditorToolDependencies) => dependencies.getSnapshot() ?? toolFailure('NOT_READY', 'The apartment is still loading.', { retryable: true });
 
 export function buildEditorTools(dependencies: EditorToolDependencies): WebMcpTool[] {
@@ -264,6 +269,27 @@ export function buildEditorTools(dependencies: EditorToolDependencies): WebMcpTo
       },
     },
     {
+      name: 'dwellwise.list_finish_targets', title: 'List editable 3D material finishes',
+      description: 'Return valid furniture parts, floors, walls, door panels, and window frames that can be recolored. Read this catalog before calling update_finish.',
+      inputSchema: { type: 'object', additionalProperties: false, properties: { ...pageInputSchemaProperties, scope: { type: 'string', enum: ['furniture', 'room', 'wall', 'opening'] }, entityId: { type: 'string', minLength: 1, maxLength: 128 }, overridden: { type: 'boolean' } } },
+      annotations: readAnnotations,
+      execute: (input) => {
+        if (!isRecord(input) || (input.scope !== undefined && !['furniture', 'room', 'wall', 'opening'].includes(String(input.scope))) || (input.entityId !== undefined && !validId(input.entityId)) || (input.overridden !== undefined && typeof input.overridden !== 'boolean')) return toolFailure('INVALID_INPUT', 'Input must contain only a valid limit, cursor, scope, entityId, or overridden filter.');
+        const snapshot = snapshotOrFailure(dependencies);
+        if ('ok' in snapshot) return snapshot;
+        const scope = input.scope as 'furniture' | 'room' | 'wall' | 'opening' | undefined;
+        const entityId = input.entityId as string | undefined;
+        const overridden = input.overridden as boolean | undefined;
+        const consistency = `${snapshot.project.id}:${snapshot.project.revision}`;
+        const query = `scope=${scope ?? ''}&entityId=${entityId ?? ''}&overridden=${overridden ?? ''}`;
+        const page = parsePageInput(input, { scope: 'finish-targets', consistency, query });
+        if ('ok' in page) return page;
+        const targets = finishTargetSummary(snapshot).filter((target) => (!scope || target.scope === scope) && (!entityId || target.entityId === entityId) && (overridden === undefined || target.overridden === overridden));
+        const result = paginate(targets, page, { scope: 'finish-targets', consistency, query });
+        return toolSuccess('Loaded editable 3D finish targets.', { projectId: snapshot.project.id, revision: snapshot.project.revision, data: { targets: result.items, ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}) } });
+      },
+    },
+    {
       name: 'dwellwise.rename_project', title: 'Rename the current Dwellwise apartment',
       description: 'Rename and save the current apartment. The name must contain 1 to 80 characters.',
       inputSchema: renameProjectInputSchema,
@@ -319,12 +345,29 @@ export function buildEditorTools(dependencies: EditorToolDependencies): WebMcpTo
     },
     {
       name: 'dwellwise.update_finish', title: 'Update a 3D material finish',
-      description: 'Save a refined color for a furniture part, floor, wall, door, or window frame. Read existing target keys from the project summary. The chosen hue is balanced for the material role.',
-      inputSchema: { type: 'object', additionalProperties: false, properties: { targetKey: { type: 'string', minLength: 3, maxLength: 180 }, color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }, role: { type: 'string', enum: ['wood', 'textile', 'accent', 'metal', 'wall', 'floor', 'surface'] }, mood: { type: 'string', enum: ['soft', 'balanced', 'bold'] } }, required: ['targetKey', 'color', 'role'] },
+      description: 'Apply a harmonized color to a valid 3D finish target or reset it to the original finish. Read exact target keys from list_finish_targets first.',
+      inputSchema: {
+        type: 'object', additionalProperties: false,
+        properties: { targetKey: { type: 'string', minLength: 3, maxLength: 180 }, operation: { type: 'string', enum: ['apply', 'reset'] }, color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }, mood: { type: 'string', enum: ['soft', 'balanced', 'bold'] } },
+        required: ['targetKey', 'operation'],
+        oneOf: [
+          { properties: { operation: { const: 'apply' } }, required: ['color'] },
+          { properties: { operation: { const: 'reset' } }, not: { anyOf: [{ required: ['color'] }, { required: ['mood'] }] } },
+        ],
+      },
       annotations: writeAnnotations,
       execute: (input, { signal }) => {
-        if (!isRecord(input) || typeof input.targetKey !== 'string' || !isMaterialKey(input.targetKey) || typeof input.color !== 'string' || !normalizeHexColor(input.color) || !['wood', 'textile', 'accent', 'metal', 'wall', 'floor', 'surface'].includes(String(input.role)) || (input.mood !== undefined && !['soft', 'balanced', 'bold'].includes(String(input.mood)))) return toolFailure('INVALID_INPUT', 'Provide a valid material target, six-digit hex color, material role, and optional mood.');
-        return dependencies.updateFinish(input.targetKey, harmonizeColor(input.color, input.role as MaterialRole, (input.mood ?? 'balanced') as FinishMood), signal);
+        const allowedFields = new Set(['targetKey', 'operation', 'color', 'mood']);
+        if (!isRecord(input) || Object.keys(input).some((key) => !allowedFields.has(key)) || typeof input.targetKey !== 'string' || !isMaterialKey(input.targetKey) || !['apply', 'reset'].includes(String(input.operation)) || (input.operation === 'apply' && (typeof input.color !== 'string' || !normalizeHexColor(input.color))) || (input.operation === 'reset' && (input.color !== undefined || input.mood !== undefined)) || (input.mood !== undefined && !['soft', 'balanced', 'bold'].includes(String(input.mood)))) return toolFailure('INVALID_INPUT', 'Provide a listed target and either apply with a six-digit hex color and optional mood, or reset without color fields.');
+        const snapshot = snapshotOrFailure(dependencies);
+        if ('ok' in snapshot) return snapshot;
+        const target = finishTargetSummary(snapshot).find((candidate) => candidate.targetKey === input.targetKey);
+        if (!target) return toolFailure('TARGET_NOT_FOUND', 'That finish target is not available in the current apartment. Call list_finish_targets again.', { retryable: true, currentRevision: snapshot.project.revision });
+        const color = input.operation === 'reset' ? null : harmonizeColor(input.color as string, target.role, (input.mood ?? 'balanced') as FinishMood);
+        const descriptor: FinishTarget = { targetKey: target.targetKey, scope: target.scope, entityId: target.entityId, ownerLabel: target.ownerLabel, part: target.part, partLabel: target.partLabel, role: target.role, defaultColor: target.defaultColor };
+        if (input.operation === 'reset' && !target.overridden) return toolSuccess('That 3D finish already uses its original color.', { projectId: snapshot.project.id, revision: snapshot.project.revision, data: { target: descriptor, operation: 'reset', effectiveColor: target.defaultColor, overridden: false } });
+        if (input.operation === 'apply' && target.overridden && target.effectiveColor === color) return toolSuccess('That 3D finish already uses the requested refined color.', { projectId: snapshot.project.id, revision: snapshot.project.revision, data: { target: descriptor, operation: 'apply', effectiveColor: color, overridden: true } });
+        return dependencies.updateFinish(descriptor, color, signal);
       },
     },
     {

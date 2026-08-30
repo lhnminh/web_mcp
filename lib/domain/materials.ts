@@ -1,11 +1,50 @@
+import type { ArchitecturalElement, SceneDocument } from './scene';
+import { getFurnitureKind } from './furniture';
+
 export type MaterialRole = 'wood' | 'textile' | 'accent' | 'metal' | 'wall' | 'floor' | 'surface';
 export type FinishMood = 'soft' | 'balanced' | 'bold';
+export type MaterialScope = 'furniture' | 'room' | 'wall' | 'opening';
+
+export type FinishTargetObject = {
+  id: string;
+  name: string;
+  category: string;
+};
+
+export type FinishTarget = {
+  targetKey: string;
+  scope: MaterialScope;
+  entityId: string;
+  ownerLabel: string;
+  part: string;
+  partLabel: string;
+  role: MaterialRole;
+  defaultColor: string;
+};
+
+export type FinishTargetState = FinishTarget & {
+  effectiveColor: string;
+  overridden: boolean;
+};
+
+export const MATERIAL_PALETTE = {
+  wall: '#eee9dd',
+  trim: '#f8f5eb',
+  wood: '#b98f68',
+  darkWood: '#765b45',
+  sage: '#73877e',
+  sageLight: '#94a59c',
+  rust: '#c47e58',
+  linen: '#d8cdbb',
+  charcoal: '#35413e',
+  brass: '#b88a4f',
+} as const;
 
 export const MAX_MATERIAL_OVERRIDES = 512;
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const MATERIAL_KEY = /^(furniture|room|wall|opening):[a-zA-Z0-9_-]{1,80}:[a-zA-Z0-9_-]{1,48}$/;
 
-export function materialKey(scope: 'furniture' | 'room' | 'wall' | 'opening', id: string, part: string) {
+export function materialKey(scope: MaterialScope, id: string, part: string) {
   return `${scope}:${id}:${part}`;
 }
 
@@ -16,6 +55,74 @@ export function normalizeHexColor(value: string) {
 
 export function isMaterialKey(value: string) {
   return MATERIAL_KEY.test(value);
+}
+
+type FinishPartDefinition = Pick<FinishTarget, 'part' | 'partLabel' | 'role' | 'defaultColor'>;
+
+const part = (partName: string, partLabel: string, role: MaterialRole, defaultColor: string): FinishPartDefinition => ({ part: partName, partLabel, role, defaultColor });
+
+const furnitureParts: Record<string, readonly FinishPartDefinition[]> = {
+  sofa: [part('base', 'Sofa base', 'textile', MATERIAL_PALETTE.sage), part('seat', 'Seat cushions', 'textile', '#879b91'), part('back', 'Back cushions', 'textile', '#687b73'), part('pillows', 'Pillows', 'textile', MATERIAL_PALETTE.sageLight), part('arms', 'Arms', 'textile', '#6b8177'), part('legs', 'Legs', 'wood', MATERIAL_PALETTE.darkWood)],
+  desk: [part('desktop', 'Desktop', 'wood', MATERIAL_PALETTE.wood), part('legs', 'Legs', 'metal', MATERIAL_PALETTE.charcoal), part('monitor', 'Monitor', 'metal', '#273230'), part('keyboard', 'Keyboard', 'surface', '#d7d1c3')],
+  coffee: [part('tabletop', 'Tabletop', 'wood', MATERIAL_PALETTE.darkWood), part('base', 'Base', 'metal', MATERIAL_PALETTE.brass)],
+  dining: [part('tabletop', 'Tabletop', 'wood', MATERIAL_PALETTE.wood), part('table-legs', 'Table legs', 'wood', MATERIAL_PALETTE.darkWood), part('chairs', 'Chairs', 'textile', MATERIAL_PALETTE.sage)],
+  bed: [part('base', 'Bed base', 'wood', MATERIAL_PALETTE.darkWood), part('mattress', 'Mattress', 'textile', MATERIAL_PALETTE.linen), part('headboard', 'Headboard', 'textile', MATERIAL_PALETTE.sage), part('pillows', 'Pillows', 'textile', MATERIAL_PALETTE.trim), part('blanket', 'Blanket', 'accent', '#ad7258')],
+  chair: [part('seat', 'Seat', 'textile', MATERIAL_PALETTE.rust), part('back', 'Back', 'textile', '#b56f50'), part('arms', 'Arms', 'textile', '#9f5f47')],
+  nightstand: [part('body', 'Nightstand body', 'wood', MATERIAL_PALETTE.wood), part('top', 'Nightstand top', 'wood', '#cfb998')],
+  bookcase: [part('back', 'Back', 'wood', MATERIAL_PALETTE.darkWood), part('frame', 'Frame', 'wood', MATERIAL_PALETTE.wood), part('shelves', 'Shelves', 'wood', '#b58b65')],
+  storage: [part('body', 'Dresser body', 'wood', MATERIAL_PALETTE.wood), part('top', 'Dresser top', 'wood', '#c8b08f'), part('drawers', 'Drawer fronts', 'wood', MATERIAL_PALETTE.wood)],
+};
+
+export function finishTargetsForFurniture(item: FinishTargetObject): FinishTarget[] {
+  const kind = getFurnitureKind(item.category, item.name);
+  const fallbackColor = item.category === 'table' ? MATERIAL_PALETTE.darkWood : MATERIAL_PALETTE.sage;
+  const definitions = furnitureParts[kind] ?? [part('body', 'Body', 'surface', fallbackColor)];
+  return definitions.map((definition) => ({
+    targetKey: materialKey('furniture', item.id, definition.part),
+    scope: 'furniture',
+    entityId: item.id,
+    ownerLabel: item.name,
+    ...definition,
+  }));
+}
+
+export function buildFinishTargets(architecture: ArchitecturalElement[], objects: FinishTargetObject[]): FinishTarget[] {
+  const floorColors = ['#c5aa86', '#d2bfa6', '#bda582', '#cfbda4'];
+  const roomTargets: FinishTarget[] = architecture.filter((element) => element.kind === 'room').map((element, index) => ({ targetKey: materialKey('room', element.id, 'floor'), scope: 'room', entityId: element.id, ownerLabel: element.name, part: 'floor', partLabel: 'Floor', role: 'floor', defaultColor: floorColors[index % floorColors.length] }));
+  const wallTargets: FinishTarget[] = architecture.filter((element) => element.kind === 'wall').map((element) => ({ targetKey: materialKey('wall', element.id, 'surface'), scope: 'wall', entityId: element.id, ownerLabel: 'Wall', part: 'surface', partLabel: 'Wall surface', role: 'wall', defaultColor: MATERIAL_PALETTE.wall }));
+  const openingTargets: FinishTarget[] = architecture.filter((element) => element.kind === 'opening').map((element) => element.openingType === 'door'
+    ? { targetKey: materialKey('opening', element.id, 'panel'), scope: 'opening', entityId: element.id, ownerLabel: 'Door', part: 'panel', partLabel: 'Door panel', role: 'wood', defaultColor: '#a97855' }
+    : { targetKey: materialKey('opening', element.id, 'frame'), scope: 'opening', entityId: element.id, ownerLabel: 'Window', part: 'frame', partLabel: 'Window frame', role: 'surface', defaultColor: MATERIAL_PALETTE.trim });
+  const architectureTargets = [...roomTargets, ...wallTargets, ...openingTargets];
+  const targets = [...architectureTargets, ...objects.flatMap(finishTargetsForFurniture)];
+  return targets.sort((left, right) => left.scope.localeCompare(right.scope) || left.ownerLabel.localeCompare(right.ownerLabel) || left.entityId.localeCompare(right.entityId) || left.part.localeCompare(right.part));
+}
+
+export function finishTargetStates(architecture: ArchitecturalElement[], objects: FinishTargetObject[], overrides: Record<string, string> = {}): FinishTargetState[] {
+  return buildFinishTargets(architecture, objects).map((target) => ({
+    ...target,
+    effectiveColor: overrides[target.targetKey] ?? target.defaultColor,
+    overridden: Object.hasOwn(overrides, target.targetKey),
+  }));
+}
+
+function objectsForScene(scene: SceneDocument, layoutId?: string): FinishTargetObject[] {
+  const catalog = new Map(scene.catalog.map((item) => [item.id, item]));
+  return scene.layouts.filter((layout) => !layoutId || layout.id === layoutId).flatMap((layout) => layout.elements.map((element) => {
+    const item = catalog.get(element.catalogItemId);
+    return { id: element.id, name: item?.name ?? 'Furniture', category: item?.category ?? 'other' };
+  }));
+}
+
+export function finishTargetsForScene(scene: SceneDocument, layoutId = 'layout-a'): FinishTarget[] {
+  return buildFinishTargets(scene.architecture, objectsForScene(scene, layoutId));
+}
+
+export function pruneMaterialOverrides(scene: SceneDocument): SceneDocument {
+  if (!scene.materialOverrides) return scene;
+  const validKeys = new Set(buildFinishTargets(scene.architecture, objectsForScene(scene)).map((target) => target.targetKey));
+  const materialOverrides = Object.fromEntries(Object.entries(scene.materialOverrides).filter(([key]) => validKeys.has(key)));
+  return { ...scene, materialOverrides };
 }
 
 function hexToHsl(hex: string) {
