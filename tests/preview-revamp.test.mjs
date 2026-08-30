@@ -58,6 +58,13 @@ test('3D mode exposes the shared undo and redo history without plan zoom control
   assert.equal(/aria-label="3D edit history"[\s\S]*Zoom out/.test(editor), false);
 });
 
+test('3D controls keep reset perspective without exposing manual camera-angle controls', () => {
+  assert.equal(editor.includes('CAMERA ANGLE'), false);
+  assert.equal(editor.includes('Rotate camera left'), false);
+  assert.equal(editor.includes('Rotate camera right'), false);
+  assert.match(editor, /<button className="wide-control" onClick=\{onReset\}>Reset perspective<\/button>/);
+});
+
 test('3D finish targeting highlights surfaces and offers a furniture part picker', () => {
   assert.match(scene, /onPointerOver=\{\(event\) => \{ event\.stopPropagation\(\); finishes\.setHoveredTargetKey\(targetKey\); \}\}/);
   assert.match(scene, /onPointerOut=\{\(event\) => \{ event\.stopPropagation\(\); finishes\.setHoveredTargetKey\(\(current\) => current === targetKey \? null : current\); \}\}/);
