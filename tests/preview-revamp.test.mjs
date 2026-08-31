@@ -110,6 +110,17 @@ test('architecture property edits preview live and save without apply buttons', 
   assert.equal(editor.includes('Changes save automatically.'), false);
 });
 
+test('right-clicking an exterior wall adds a corner at the clicked position', () => {
+  assert.match(editor, /const addExteriorCornerAtPoint = \(event: MouseEvent<SVGLineElement>, wall: WallElement\)/);
+  assert.match(editor, /onContextMenu=\{\(event\) => addExteriorCornerAtPoint\(event, originalWall\)\}/);
+  assert.match(editor, /const offsetMeters = Math\.round\(ratio \* length \* 100\) \/ 100/);
+  assert.match(editor, /void onAddExteriorCorner\(wall\.id, offsetMeters\)/);
+  assert.match(editor, /event\.button !== 0 \|\| selectedWallId !== wall\.id/);
+  assert.equal(editor.includes('＋ Add corner'), false, 'the ambiguous midpoint button should be removed');
+  assert.match(editor, /Right-click an exterior wall to add a corner/);
+  assert.match(styles, /\.exterior-corner-actions\{[^}]*grid-template-columns:1fr 1fr/);
+});
+
 test('furniture selection and add-panel state cannot drift apart', () => {
   assert.match(editor, /onEditMode=\{\(mode\) => \{ setArchitecturePreview\(null\); setSelected\(''\); setEditMode\(mode\); \}\}/);
   assert.match(editor, /onDeselect=\{\(\) => setSelected\(''\)\}/);
