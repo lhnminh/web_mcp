@@ -52,7 +52,8 @@ test('undo and redo buttons do not pass React click events as abort signals', ()
 });
 
 test('3D mode exposes the shared undo and redo history without plan zoom controls', () => {
-  assert.match(editor, /className="three-mode-tools"[\s\S]*ORIENTATION-AWARE VISUAL PREVIEW[\s\S]*aria-label="3D edit history"/);
+  assert.match(editor, /className="three-mode-tools"[\s\S]*aria-label="3D edit history"/);
+  assert.equal(editor.includes('ORIENTATION-AWARE VISUAL PREVIEW'), false);
   assert.match(editor, /aria-label="3D edit history"[\s\S]*void onUndo\(\)[\s\S]*void onRedo\(\)/);
   assert.match(styles, /\.three-history-tools\{[^}]*border:1px solid var\(--draft-blue\)/);
   assert.equal(/aria-label="3D edit history"[\s\S]*Zoom out/.test(editor), false);
@@ -65,7 +66,12 @@ test('3D controls keep reset perspective without exposing manual camera-angle co
   assert.match(editor, /<button className="wide-control" onClick=\{onReset\}>Reset perspective<\/button>/);
 });
 
+test('the editor header omits redundant browser-storage copy', () => {
+  assert.equal(editor.includes('Saved in this browser'), false);
+});
+
 test('3D finish targeting highlights surfaces and offers a furniture part picker', () => {
+  assert.match(styles, /\.canvas-help\{[^}]*font-size:10px/);
   assert.match(scene, /onPointerOver=\{\(event\) => \{ event\.stopPropagation\(\); finishes\.setHoveredTargetKey\(targetKey\); \}\}/);
   assert.match(scene, /onPointerOut=\{\(event\) => \{ event\.stopPropagation\(\); finishes\.setHoveredTargetKey\(\(current\) => current === targetKey \? null : current\); \}\}/);
   assert.match(scene, /if \(scope === 'furniture'\) finishes\.openFurniturePartPicker\(targetId\)/);
@@ -87,6 +93,9 @@ test('resetting or resizing an apartment cannot restore stale 3D camera framing'
 });
 
 test('architecture property edits preview live and save without apply buttons', () => {
+  assert.match(editor, /const roundArchitectureDimension = \(value: number\) => Math\.round\(\(value \+ Number\.EPSILON\) \* 100\) \/ 100/);
+  assert.match(editor, /useState\(\(\) => roundArchitectureDimension\(bounds\.width\)\)/);
+  assert.match(editor, /\[key\]: roundArchitectureDimension\(value\)/);
   for (const label of ['Apply apartment size', 'Apply wall dimensions', 'Apply window changes', 'Apply door changes']) {
     assert.equal(editor.includes(label), false, `${label} should not be required`);
   }
@@ -133,6 +142,7 @@ test('architecture saves wait for earlier edits before calculating the next wall
 test('the static north arrow is replaced by a saved cardinal compass', () => {
   assert.equal(editor.includes('<div className="north-marker">'), false);
   assert.match(editor, /function PlanCompass/);
+  assert.match(styles, /\.compass-title,\.compass-question \{[^}]*font-size: 8px/);
   assert.match(editor, /TOP OF PLAN FACES/);
   assert.match(editor, /Set top of floor plan to face/);
   assert.match(editor, /const dialDirections = directions\.map/);
@@ -199,8 +209,9 @@ test('windowless apartments do not receive directional sunlight', () => {
   assert.match(scene, /const hemisphereIntensity = 0\.48/);
   assert.match(scene, /const ambientIntensity = 0\.28/);
   assert.match(scene, /const hemisphereGroundColor = hasWindows \? '#9a765d' : '#8d9694'/);
-  assert.match(editor, /Light · ON/);
-  assert.match(editor, /Artificial fill · no direct sunlight/);
+  assert.match(editor, /Artificial light/);
+  assert.match(editor, /\*Due to no windows/);
+  assert.doesNotMatch(editor, /Light · ON|Artificial fill · no direct sunlight/);
 });
 
 test('windowless rooms use even diffuse fill without a glowing local source', () => {
@@ -331,6 +342,9 @@ test('saved dimensions are the single source for architecture and furniture in 2
   assert.equal(styles.includes('min-width:18px;min-height:18px'), false, 'small furniture must not be visually enlarged in the plan');
   assert.match(styles, /\.plan-object-hit-area\{[^}]*width:max\(100%,24px\);height:max\(100%,24px\)/);
   assert.match(editor, /wallLength\(wall\)\.toFixed\(2\)/);
+  assert.match(styles, /\.dimension-control>div\{[^}]*grid-template-columns:minmax\(0,1fr\) 52px/);
+  assert.match(styles, /\.dimension-control input\[type=number\]\{[^}]*width:52px[^}]*letter-spacing:0[^}]*appearance:textfield/);
+  assert.match(styles, /::-webkit-inner-spin-button[^}]*appearance:none/);
   assert.match(editor, /strokeWidth=\{wall\.thickness\}/);
   assert.equal(editor.includes('strokeWidth={Math.max(wall.thickness, 0.07)}'), false, 'visible wall thickness must stay to scale');
   assert.match(editor, /opening\.offset \+ opening\.width/);

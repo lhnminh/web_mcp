@@ -67,6 +67,8 @@ const timeLabel = (hour: number) => {
   return `${display}:${minute.toString().padStart(2, '0')} ${suffix}`;
 };
 
+const roundArchitectureDimension = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
 function resizeApartmentScene(scene: SceneDocument, width: number, depth: number, height: number) {
   const resized = resizeSceneFootprint(scene, width, depth);
   return {
@@ -902,7 +904,7 @@ function Header({ projectName, onRename, resetting, onReset }: { projectName: st
             {error && <span role="alert">{error}</span>}
           </form>
         ) : (
-          <div className="editor-project-heading"><div><div className="project-name">{projectName}</div><div className="project-meta">Saved in this browser</div></div><button className="project-rename-trigger" onClick={() => setEditing(true)} aria-label="Rename apartment">Rename</button></div>
+          <div className="editor-project-heading"><div className="project-name">{projectName}</div><button className="project-rename-trigger" onClick={() => setEditing(true)} aria-label="Rename apartment">Rename</button></div>
         )}
       </div>
       <div className="top-actions">
@@ -929,7 +931,6 @@ function ModeBar({ view, compare, editMode, zoom, canUndo, canRedo, onUndo, onRe
         <div className="plan-tools"><button aria-label="Undo last change" onClick={() => { void onUndo(); }} disabled={!canUndo}>↶</button><button aria-label="Redo last change" onClick={() => { void onRedo(); }} disabled={!canRedo}>↷</button><div className="zoom-tools"><button aria-label="Zoom out" onClick={() => onZoom(Math.max(50, zoom - 5))} disabled={zoom <= 50}>−</button><strong>{zoom}%</strong><button aria-label="Zoom in" onClick={() => onZoom(Math.min(120, zoom + 5))} disabled={zoom >= 120}>+</button></div></div>
       ) : view === 'three' ? (
         <div className="three-mode-tools">
-          <span>ORIENTATION-AWARE VISUAL PREVIEW</span>
           <div className="three-history-tools" role="group" aria-label="3D edit history">
             <button aria-label="Undo last change" onClick={() => { void onUndo(); }} disabled={!canUndo}>↶</button>
             <button aria-label="Redo last change" onClick={() => { void onRedo(); }} disabled={!canRedo}>↷</button>
@@ -990,12 +991,12 @@ function RoomNameEditor({ room, edgeLengths, onRenameRoom }: { room: RoomElement
 function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpening, drawingWall, loading, onDrawingWall, onPreviewApartment, onPreviewWall, onPreviewOpening, onResizeApartment, onUpdateWall, onDeleteWall, onAddExteriorCorner, onRemoveExteriorCorner, onAddDoor, onAddWindow, onUpdateOpening, onDeleteOpening, onCloseOpening }: { architecture: ArchitecturalElement[]; selectedWall?: WallElement; selectedOpening?: OpeningElement; drawingWall: boolean; loading: boolean; onDrawingWall: (drawing: boolean) => void; onPreviewApartment: (width: number, depth: number, height: number) => void; onPreviewWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => void; onPreviewOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'sillHeight' | 'swing' | 'swingSide'>>) => void; onResizeApartment: (width: number, depth: number, height: number) => Promise<string | null>; onUpdateWall: (id: string, patch: Partial<Pick<WallElement, 'start' | 'end' | 'thickness' | 'height'>>) => Promise<unknown>; onDeleteWall: (id: string) => Promise<unknown>; onAddExteriorCorner: (id: string) => Promise<unknown>; onRemoveExteriorCorner: (id: string, endpoint: WallEndpoint) => Promise<unknown>; onAddDoor: (wallId: string) => Promise<unknown>; onAddWindow: (wallId: string) => Promise<unknown>; onUpdateOpening: (id: string, patch: Partial<Pick<OpeningElement, 'offset' | 'width' | 'height' | 'sillHeight' | 'swing' | 'swingSide'>>) => Promise<unknown>; onDeleteOpening: (id: string) => Promise<unknown>; onCloseOpening: () => void }) {
   const bounds = getArchitectureBounds(architecture);
   const walls = architecture.filter((element): element is WallElement => element.kind === 'wall');
-  const [width, setWidth] = useState(bounds.width);
-  const [depth, setDepth] = useState(bounds.depth);
-  const [height, setHeight] = useState(() => walls[0]?.height ?? 2.74);
+  const [width, setWidth] = useState(() => roundArchitectureDimension(bounds.width));
+  const [depth, setDepth] = useState(() => roundArchitectureDimension(bounds.depth));
+  const [height, setHeight] = useState(() => roundArchitectureDimension(walls[0]?.height ?? 2.74));
   const [saving, setSaving] = useState(false);
-  const [wallValues, setWallValues] = useState(() => selectedWall ? { length: wallLength(selectedWall), thickness: selectedWall.thickness, height: selectedWall.height } : { length: 0, thickness: 0.12, height: 2.74 });
-  const [openingValues, setOpeningValues] = useState(() => selectedOpening ? { offset: selectedOpening.offset, width: selectedOpening.width, height: selectedOpening.height, sillHeight: selectedOpening.sillHeight, swing: selectedOpening.swing ?? 'left', swingSide: selectedOpening.swingSide ?? 'in' } : { offset: 0, width: 0.91, height: 2.03, sillHeight: 0, swing: 'left' as const, swingSide: 'in' as const });
+  const [wallValues, setWallValues] = useState(() => selectedWall ? { length: roundArchitectureDimension(wallLength(selectedWall)), thickness: roundArchitectureDimension(selectedWall.thickness), height: roundArchitectureDimension(selectedWall.height) } : { length: 0, thickness: 0.12, height: 2.74 });
+  const [openingValues, setOpeningValues] = useState(() => selectedOpening ? { offset: roundArchitectureDimension(selectedOpening.offset), width: roundArchitectureDimension(selectedOpening.width), height: roundArchitectureDimension(selectedOpening.height), sillHeight: roundArchitectureDimension(selectedOpening.sillHeight), swing: selectedOpening.swing ?? 'left', swingSide: selectedOpening.swingSide ?? 'in' } : { offset: 0, width: 0.91, height: 2.03, sillHeight: 0, swing: 'left' as const, swingSide: 'in' as const });
   const selectedWindow = selectedOpening?.openingType === 'window';
   const exterior = selectedWall ? isExteriorWall(selectedWall, bounds, architecture) : false;
   const openingClearance = 0;
@@ -1014,7 +1015,7 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
   const sillValueMaximum = Math.max(0, (selectedWall?.height ?? 0) - openingValues.height);
 
   const changeApartmentValue = (key: 'width' | 'depth' | 'height', value: number) => {
-    const next = { width, depth, height, [key]: value };
+    const next = { width, depth, height, [key]: roundArchitectureDimension(value) };
     setWidth(next.width);
     setDepth(next.depth);
     setHeight(next.height);
@@ -1036,14 +1037,21 @@ function ArchitecturePropertiesPanel({ architecture, selectedWall, selectedOpeni
   };
 
   const changeWallValue = (key: keyof typeof wallValues, value: number) => {
-    const next = { ...wallValues, [key]: value };
+    const next = { ...wallValues, [key]: roundArchitectureDimension(value) };
     setWallValues(next);
     if (selectedWall) onPreviewWall(selectedWall.id, wallPatch(next));
     return next;
   };
 
   const changeOpeningValues = (patch: Partial<typeof openingValues>) => {
-    const next = { ...openingValues, ...patch };
+    const next = {
+      ...openingValues,
+      ...patch,
+      ...(patch.offset !== undefined ? { offset: roundArchitectureDimension(patch.offset) } : {}),
+      ...(patch.width !== undefined ? { width: roundArchitectureDimension(patch.width) } : {}),
+      ...(patch.height !== undefined ? { height: roundArchitectureDimension(patch.height) } : {}),
+      ...(patch.sillHeight !== undefined ? { sillHeight: roundArchitectureDimension(patch.sillHeight) } : {}),
+    };
     setOpeningValues(next);
     if (selectedOpening) onPreviewOpening(selectedOpening.id, selectedWindow ? { offset: next.offset, width: next.width, height: next.height, sillHeight: next.sillHeight } : next);
     return next;
@@ -1877,7 +1885,7 @@ function PreviewControls({ hour, northAngle, architecture, measurements, onHour,
     <aside className="library-panel preview-controls">
       <div className="panel-heading"><div><span className="eyebrow">3D MODEL</span><h2>View controls</h2></div><span className="live-badge"><i /> LIVE</span></div>
       <button className="wide-control" onClick={onReset}>Reset perspective</button>
-      <div className="control-section daylight-control"><label>SUNLIGHT PREVIEW <span>{timeLabel(hour)}</span></label><div className="sun-readout"><span className="sun-icon">{hasWindows ? '☀' : '●'}</span><div><strong>{hasWindows ? (hour < 12 ? 'Morning light' : hour < 16 ? 'Afternoon light' : 'Evening light') : 'Light · ON'}</strong><small>{hasWindows ? exposure : 'Artificial fill · no direct sunlight'}</small></div></div><div className="visual-estimate" role="note">Visual estimate · based on apartment orientation</div><input aria-label={`Sunlight preview time, ${timeLabel(hour)}`} type="range" min="7" max="20" step="0.25" value={hour} onChange={(e) => onHour(Number(e.target.value))} /><div className="range-labels"><span>7 AM</span><span>NOON</span><span>8 PM</span></div></div>
+      <div className="control-section daylight-control"><label>SUNLIGHT PREVIEW <span>{timeLabel(hour)}</span></label><div className="sun-readout"><span className="sun-icon">{hasWindows ? '☀' : '●'}</span><div><strong>{hasWindows ? (hour < 12 ? 'Morning light' : hour < 16 ? 'Afternoon light' : 'Evening light') : 'Artificial light'}</strong><small>{hasWindows ? exposure : '*Due to no windows'}</small></div></div><div className="visual-estimate" role="note">Visual estimate · based on apartment orientation</div><input aria-label={`Sunlight preview time, ${timeLabel(hour)}`} type="range" min="7" max="20" step="0.25" value={hour} onChange={(e) => onHour(Number(e.target.value))} /><div className="range-labels"><span>7 AM</span><span>NOON</span><span>8 PM</span></div></div>
       <div className="control-section"><label>DISPLAY</label><label className="toggle-row">Furniture measurements <input type="checkbox" checked={measurements} onChange={(event) => onMeasurements(event.target.checked)} /><i /></label></div>
     </aside>
   );
