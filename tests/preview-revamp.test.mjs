@@ -215,6 +215,7 @@ test('invisible room ceilings block overhead sunlight without obstructing the ca
 });
 
 test('windowless apartments do not receive directional sunlight', () => {
+  assert.match(scene, /const windows = getSunlitWindows\(architecture\)/);
   assert.match(scene, /const hasWindows = windows\.length > 0/);
   assert.match(scene, /\{hasWindows && <Sunlight/);
   assert.match(scene, /const hemisphereIntensity = 0\.48/);

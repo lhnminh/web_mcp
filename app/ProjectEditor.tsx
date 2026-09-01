@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import type { ArchitecturalElement, OpeningElement, Point2, RoomElement, SceneDocument, WallElement } from '@/lib/domain/scene';
 import { getArchitectureBounds, isExteriorWall, isRectangularRoom, polygonArea, polygonCentroid, rebuildSceneRooms, resizeSceneFootprint, roomForPoint, wallLength } from '@/lib/domain/architecture';
 import { blankApartmentScene } from '@/lib/domain/demo-scene';
-import { getWindowExposureSummary, northAngleForPlanFacing, planFacingFromNorthAngle, type CardinalDirection } from '@/lib/domain/sunlight';
+import { getSunlitWindows, getWindowExposureSummary, northAngleForPlanFacing, planFacingFromNorthAngle, type CardinalDirection } from '@/lib/domain/sunlight';
 import ApartmentScene, { clearSavedApartmentCamera } from './ApartmentScene';
 import { getFurnitureKind } from '@/lib/domain/furniture';
 import { finishTargetsForScene, pruneMaterialOverrides, type FinishTarget } from '@/lib/domain/materials';
@@ -1893,7 +1893,7 @@ function formatDimensions(dimensions: SceneObject['dimensions']) {
 }
 
 function PreviewControls({ hour, northAngle, architecture, measurements, onHour, onReset, onMeasurements }: { hour: number; northAngle: number; architecture: ArchitecturalElement[]; measurements: boolean; onHour: (n: number) => void; onReset: () => void; onMeasurements: (value: boolean) => void }) {
-  const hasWindows = architecture.some((element) => element.kind === 'opening' && element.openingType === 'window');
+  const hasWindows = getSunlitWindows(architecture).length > 0;
   const exposure = getWindowExposureSummary(architecture, northAngle);
   return (
     <aside className="library-panel preview-controls">

@@ -1,4 +1,4 @@
-import type { ArchitecturalElement, Point2, RoomElement, WallElement } from './scene';
+import type { ArchitecturalElement, OpeningElement, Point2, RoomElement, WallElement } from './scene';
 
 export type SunDirection = {
   position: [number, number, number];
@@ -81,6 +81,31 @@ function outwardWallNormal(wall: WallElement, architecture: ArchitecturalElement
   return towardWall.x * normal.x + towardWall.y * normal.y >= 0 ? normal : { x: -normal.x, y: -normal.y };
 }
 
+function isExteriorWallForDaylight(wall: WallElement, architecture: ArchitecturalElement[]) {
+  const dx = wall.end.x - wall.start.x;
+  const dy = wall.end.y - wall.start.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 0.0001) return false;
+
+  const rooms = architecture.filter((element): element is RoomElement => element.kind === 'room');
+  const midpoint = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 };
+  const sampleDistance = Math.max(0.03, wall.thickness * 0.75);
+  const normal = { x: (-dy / length) * sampleDistance, y: (dx / length) * sampleDistance };
+  const sideA = rooms.some((room) => pointInRoom({ x: midpoint.x + normal.x, y: midpoint.y + normal.y }, room));
+  const sideB = rooms.some((room) => pointInRoom({ x: midpoint.x - normal.x, y: midpoint.y - normal.y }, room));
+  return sideA !== sideB;
+}
+
+/** Only exterior windows are exposed to the outdoors and can admit daylight. */
+export function getSunlitWindows(architecture: ArchitecturalElement[]): OpeningElement[] {
+  const walls = new Map(architecture.flatMap((element) => element.kind === 'wall' ? [[element.id, element] as const] : []));
+  return architecture.filter((element): element is OpeningElement => {
+    if (element.kind !== 'opening' || element.openingType !== 'window') return false;
+    const wall = walls.get(element.wallId);
+    return Boolean(wall && isExteriorWallForDaylight(wall, architecture));
+  });
+}
+
 export function getWallExposure(wall: WallElement, architecture: ArchitecturalElement[], northAngle: number) {
   const normal = outwardWallNormal(wall, architecture);
   if (!normal || !Number.isFinite(northAngle)) return null;
@@ -93,8 +118,7 @@ export function getWallExposure(wall: WallElement, architecture: ArchitecturalEl
 export function getWindowExposureSummary(architecture: ArchitecturalElement[], northAngle: number) {
   if (!Number.isFinite(northAngle)) return 'Orientation not confirmed';
   const walls = new Map(architecture.flatMap((element) => element.kind === 'wall' ? [[element.id, element] as const] : []));
-  const exposures = architecture.flatMap((element) => {
-    if (element.kind !== 'opening' || element.openingType !== 'window') return [];
+  const exposures = getSunlitWindows(architecture).flatMap((element) => {
     const wall = walls.get(element.wallId);
     const exposure = wall ? getWallExposure(wall, architecture, northAngle) : null;
     return exposure ? [exposure] : [];

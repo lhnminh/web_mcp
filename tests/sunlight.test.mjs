@@ -11,7 +11,7 @@ const compiled = ts.transpileModule(source, {
 const exports = {};
 runInNewContext(compiled, { exports, Math, Number, Set, Map });
 
-const { getSunDirection, getWallExposure, getWindowExposureSummary, northAngleForPlanFacing, planFacingFromNorthAngle } = exports;
+const { getSunDirection, getSunlitWindows, getWallExposure, getWindowExposureSummary, northAngleForPlanFacing, planFacingFromNorthAngle } = exports;
 const near = (actual, expected, tolerance = 0.0001) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} should be near ${expected}`);
 
 test('generic solar arc follows east, south, and west around scene north', () => {
@@ -74,4 +74,14 @@ test('window exposure rotates with north angle', () => {
   assert.equal(getWallExposure(architecture[1], architecture, 180), 'South');
   assert.equal(getWallExposure(architecture[1], architecture, 270), 'East');
   assert.equal(getWindowExposureSummary(architecture, Number.NaN), 'Orientation not confirmed');
+});
+
+test('interior windows are not treated as sources of outdoor daylight', () => {
+  const withInteriorWindow = [
+    ...architecture,
+    { id: 'divider', kind: 'wall', start: { x: 2, y: 0 }, end: { x: 2, y: 3 }, thickness: 0.15, height: 2.7 },
+    { id: 'window-divider', kind: 'opening', openingType: 'window', wallId: 'divider', offset: 0.7, width: 1, height: 1.4, sillHeight: 0.8 },
+  ];
+  assert.deepEqual(getSunlitWindows(withInteriorWindow).map((window) => window.id), ['window-north', 'window-east']);
+  assert.equal(getWindowExposureSummary(withInteriorWindow, 0), 'North + East windows');
 });

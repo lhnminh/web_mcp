@@ -6,7 +6,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import type { ArchitecturalElement, OpeningElement, RoomElement, WallElement } from '@/lib/domain/scene';
 import { buildFinishTargets, finishTargetsForFurniture, harmonizeColor, MATERIAL_PALETTE, materialKey, type FinishMood, type FinishTarget, type MaterialRole } from '@/lib/domain/materials';
 import { getArchitectureBounds, wallLength } from '@/lib/domain/architecture';
-import { getSunDirection } from '@/lib/domain/sunlight';
+import { getSunDirection, getSunlitWindows } from '@/lib/domain/sunlight';
 import { getFurnitureKind } from '@/lib/domain/furniture';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
@@ -845,7 +845,7 @@ function Scene({ hour, northAngle, measurements, objects, architecture }: Pick<A
   const bounds = getArchitectureBounds(architecture);
   const rooms = architecture.filter((element): element is RoomElement => element.kind === 'room');
   const walls = new Map(architecture.flatMap((element) => element.kind === 'wall' ? [[element.id, element] as const] : []));
-  const windows = architecture.filter((element): element is OpeningElement => element.kind === 'opening' && element.openingType === 'window');
+  const windows = getSunlitWindows(architecture);
   const sceneSpan = Math.hypot(bounds.width, bounds.depth);
   const maximumHeight = Math.max(2.4, ...architecture.flatMap((element) => element.kind === 'wall' ? [element.height] : element.kind === 'room' ? [element.ceilingHeight] : []));
   const hasWindows = windows.length > 0;
