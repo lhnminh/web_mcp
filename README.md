@@ -4,7 +4,7 @@
 
 Dwellwise is an agent-ready apartment planner for testing a real layout before committing to it. Draw the apartment in 2D, reshape its walls, doors, and windows, furnish it with real-world dimensions, and inspect the result in a live 3D sunlight preview.
 
-[Open Dwellwise](https://web-mcp-one.vercel.app/)
+[Open Dwellwise](https://dwellwise-one.vercel.app/)
 
 ## What you can do
 
