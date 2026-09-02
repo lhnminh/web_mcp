@@ -1,59 +1,80 @@
 # Dwellwise
 
-**Apartment fit, before you sign.**
+> Know whether an apartment fits your life before you sign.
 
-Dwellwise is a browser-based apartment planner for testing furniture fit, room layouts, sunlight, and livability before committing to a space. Build and edit a floor plan in 2D, furnish it with real-world dimensions, then inspect it in a 3D sunlight preview.
+Dwellwise is an agent-ready apartment planner for testing a real layout before committing to it. Draw the apartment in 2D, reshape its walls, doors, and windows, furnish it with real-world dimensions, and inspect the result in a live 3D sunlight preview.
 
-[Open the live app](https://web-mcp-one.vercel.app/)
+[Open Dwellwise](https://web-mcp-one.vercel.app/)
 
-## What it does
+## What you can do
 
-- Create private apartment projects stored for the current browser.
-- Draw and reshape apartment architecture: exterior corners, walls, doors, and windows.
+- Create private apartment projects that stay available in the same browser.
+- Draw, resize, and reshape an exterior footprint; add interior walls, doors, and windows.
 - Add, move, rotate, resize, and remove furniture from a dimensioned catalog.
-- Switch between 2D planning and orientation-aware 3D sunlight preview.
-- Recolor supported 3D surfaces and preview lighting throughout the day.
-- Undo and redo editor changes while retaining project revision safety.
+- Check room areas, furniture fit, collisions, and clearance in a shared 2D plan.
+- Preview the same apartment in 3D, recolor supported surfaces, and explore illustrative sunlight throughout the day.
+- Undo and redo saved editor changes.
 
-## WebMCP: agent-ready planning
-
-Dwellwise uses the experimental browser WebMCP API (`document.modelContext`) to make its current page understandable and actionable to compatible browser agents. The normal human interface remains fully functional in browsers without WebMCP.
-
-WebMCP tools are page-scoped and semantic: an agent calls the same validated commands used by the UI instead of simulating clicks or dragging pixels. On the dashboard, it can list, create, rename, and open apartments. In the editor, it can inspect architecture and furniture, create or update walls and openings, reshape the exterior, furnish the plan, adjust 3D finishes and sunlight, and use undo/redo.
-
-The integration is deliberately bounded:
-
-- Tools operate only on the open, browser-owned project.
-- Saved edits use the same validation, revision checks, mutation queue, and visible UI updates as human edits.
-- Tools never receive cookies, owner IDs, raw database access, arbitrary URLs, or unrestricted scene-document writes.
-- Destructive actions prepare an in-app confirmation; a person completes the confirmation.
-
-For WebMCP architecture and design history, see [the WebMCP integration PRD](docs/PRD-WEBMCP-INTEGRATION.md) and [the full-parity PRD](docs/PRD-WEBMCP-FULL-PARITY.md). The live tool inventory is defined by the [editor registry](app/webmcp/editor-tools.ts) and [dashboard registry](app/webmcp/dashboard-tools.ts).
-
-## Tech stack
-
-- Next.js 16, React 19, TypeScript
-- Three.js with React Three Fiber for the 3D preview
-- PostgreSQL via Neon serverless driver
-- WebMCP for optional page-scoped agent tools
-
-## Run locally
-
-Prerequisites: Node.js 22 and a PostgreSQL database.
+## Quick start
 
 ```bash
+git clone https://github.com/lhnminh/dwellwise.git
+cd dwellwise
 npm install
 cp .env.example .env.local
 npm run dev
 ```
 
-Set `DATABASE_URL` in `.env.local` to a PostgreSQL connection string. The app creates its anonymous browser profile and project tables on first use. Never commit `.env.local` or real connection strings.
+Set `DATABASE_URL` in `.env.local` to a PostgreSQL connection string, then open [http://localhost:3000](http://localhost:3000). Dwellwise creates its anonymous browser profile and project tables on first use.
 
-To disable WebMCP registration while retaining all normal editor features:
+Requirements: Node.js 22 and PostgreSQL. Never commit `.env.local` or a real connection string.
+
+## A two-minute tour
+
+1. Create an apartment from the dashboard.
+2. In **Architecture**, resize the footprint or add an interior wall, then place doors and windows on their host walls.
+3. Switch to **Furnish** and add furniture with the dimensions you actually need.
+4. Open **3D Preview** to inspect the same saved layout and move the sunlight time through the day.
+5. Use the editor’s undo and redo controls to compare alternatives without losing your work.
+
+## WebMCP: agent-ready by design
+
+Dwellwise uses the experimental browser WebMCP API (`document.modelContext`) to expose page-scoped, semantic tools to compatible browser agents. An agent can work through the same validated application commands as a person rather than guessing at controls or simulating pointer movement. Browsers without WebMCP retain the complete normal interface.
+
+On the dashboard, agents can inspect, create, rename, and open apartments. In an editor, they can inspect and modify furniture and architecture, reshape the exterior, adjust finishes and the preview, and use undo/redo.
+
+```mermaid
+flowchart LR
+    Human["Person"] --> UI["Dwellwise UI"]
+    Agent["Compatible browser agent"] --> Tools["WebMCP tools"]
+    UI --> Commands["Shared application commands"]
+    Tools --> Commands
+    Commands --> Validation["Geometry, collision, and revision validation"]
+    Validation --> Project["Private browser-owned project"]
+    Project --> Plan["2D plan"]
+    Project --> Preview["3D sunlight preview"]
+```
+
+The WebMCP boundary is intentionally narrow:
+
+- Tools operate only on the project already open in the browser.
+- Saved agent edits use the same validation, revision checks, mutation queue, history, and visible updates as UI edits.
+- Tools never receive cookies, owner IDs, raw database access, arbitrary URLs, or unrestricted scene-document writes.
+- Destructive actions open an in-app confirmation for a person to complete.
+
+To run the human interface without registering WebMCP tools:
 
 ```bash
 NEXT_PUBLIC_WEBMCP_ENABLED=false
 ```
+
+## How it works
+
+Dwellwise keeps one scene document for the plan, persistence layer, and renderer. Architecture is defined by walls, exterior corners, and openings; rooms are derived from closed regions; furniture instances reference a reusable catalog and carry their own position, rotation, dimensions, and room assignment. This keeps 2D editing, 3D rendering, fit checks, and saving on one consistent meter-based coordinate system.
+
+Every saved change is revision-checked. If another tab has changed the project, the stale write is rejected instead of silently overwriting the newer version.
+
+Sunlight is a visual planning aid, not a quantitative daylight analysis or a building-code assessment.
 
 ## Quality checks
 
@@ -64,6 +85,13 @@ npx tsc --noEmit
 npm run build
 ```
 
+## Tech stack
+
+- Next.js 16, React 19, and TypeScript
+- Three.js with React Three Fiber for the 3D preview
+- PostgreSQL through the Neon serverless driver
+- WebMCP for optional browser-native agent tools
+
 ## Documentation
 
 - **Current implementation:** [editor tool registry](app/webmcp/editor-tools.ts), [dashboard tool registry](app/webmcp/dashboard-tools.ts), and [backend model](docs/BACKEND.md).
@@ -73,4 +101,4 @@ npm run build
 
 ## Data and privacy
 
-Projects are associated with an anonymous, secure HTTP-only browser cookie. Project API routes verify that browser ownership and return `404` for projects belonging to another browser. Saved scene changes use optimistic revisions to prevent stale tabs from silently overwriting newer work.
+Projects belong to an anonymous, secure, HTTP-only browser profile. The project API verifies that ownership on every request and responds with `404` when another browser attempts to access a project it does not own. Clearing browser data removes access to that anonymous profile; Dwellwise does not provide accounts, sharing, or cross-device synchronization.
