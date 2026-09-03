@@ -6,6 +6,16 @@ Dwellwise is an agent-ready apartment planner for testing a real layout before c
 
 [Open Dwellwise](https://dwellwise-one.vercel.app/)
 
+## Demo
+
+![Dwellwise main screen](demo/main_screen.png)
+
+![Built apartment plan](demo/built_apt.png)
+
+![3D preview](demo/3D_preview.png)
+
+![Built app with ChatGPT](demo/built_app_with_chatgpt.png)
+
 ## What you can do
 
 - Create private apartment projects that stay available in the same browser.
